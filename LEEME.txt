@@ -1,0 +1,22 @@
+PARCHE AUTOINICIO XFCE - DOCKBUY JUSTO SIERRA
+
+Contenido: solamente scripts nuevos. No reemplaza el programa, API ni archivos de estilo.
+
+INSTALAR:
+cd /home/dockbuy/repositorio/justo-sierra-kiosco
+unzip -o ../parche-autoinicio-justo-sierra.zip
+bash scripts/instalar-autoinicio.sh
+sudo reboot
+
+CERRAR KIOSCO: Alt+F4 (no se reabre automáticamente en esa sesión).
+VOLVER A ABRIR MANUALMENTE:
+cd /home/dockbuy/repositorio/justo-sierra-kiosco
+PARK_DEVICE=/dev/usb/lp0 bash scripts/start-demo.sh
+
+DESACTIVAR AUTOINICIO:
+bash /home/dockbuy/repositorio/justo-sierra-kiosco/scripts/quitar-autoinicio.sh
+
+REVISAR REGISTRO:
+tail -n 100 ~/.local/state/justo-sierra-kiosco/autoinicio.log
+
+NOTA: inicia tras iniciar sesión gráfica en XFCE. Necesita que el autologin de LightDM esté habilitado (ya configurado en el equipo). Usa el entorno de desarrollo existente (Vite + Tauri dev); no es todavía un binario de producción.
