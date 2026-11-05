@@ -5,7 +5,7 @@ import {request} from '../api'
 import ReceiptCard from './ReceiptCard.vue'
 import PrintActions from './PrintActions.vue'
 const props = defineProps({code:String, scanVersion:Number})
-const emit = defineEmits(['home'])
+const emit = defineEmits(['home','back'])
 const code = ref(''), payment = ref(null), invoice = ref(null), result = ref(null), error = ref(''), busy = ref(false), keyboard = ref(false)
 const keys = ['1234567890','QWERTYUIOP','ASDFGHJKL','ZXCVBNM-']
 let controller = new AbortController(), generation = 0
@@ -35,11 +35,13 @@ async function generate() {
 }
 function another() { controller.abort(); controller = new AbortController(); ++generation; code.value = ''; payment.value = null; invoice.value = null; result.value = null; error.value = ''; busy.value = false }
 function key(value) { if (code.value.length < 80) code.value += value }
+function goBack(){if(keyboard.value){keyboard.value=false;return}if(payment.value&&!props.code){another();return}emit('back')}
+defineExpose({goBack})
 watch(() => [props.code, props.scanVersion], ([value]) => { if (value) lookup(value) }, {immediate:true})
 </script>
 <template>
   <section class="billing-flow content">
-    <button class="back no-print" @click="emit('home')"><ArrowLeft :size="18"/> INICIO</button>
+    <div class="breadcrumb no-print"><span>Servicios del kiosco</span><span>›</span><span>Facturar</span></div>
     <div class="no-print"><span class="eyebrow red">AUTOSERVICIO · DOCUMENTOS DE PRUEBA</span><h1>FACTURAR</h1><p class="subtitle">Escanea el QR de tu comprobante de pago en este kiosco.</p></div>
     <p v-if="error" class="flow-error no-print" role="alert">{{error}}</p>
     <div v-if="!payment" class="billing-scan no-print">

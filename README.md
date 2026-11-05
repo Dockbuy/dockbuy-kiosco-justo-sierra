@@ -1,30 +1,37 @@
 # DOCKBUY — Kiosco Justo Sierra (DEMO)
 
-Monorepositorio para Debian 13: **Tauri v2 + Vue 3 + Vite** y **API mock Python 3** sin paquetes externos.
+Monorepositorio para Debian 13: **Tauri v2 + Vue 3 + Vite** y **API demo Python 3.10+**. ReportLab genera los adjuntos PDF y python-dotenv carga la configuración local del correo.
 
 ## Demo de pagos en la rama KioskoJsEMR
 
-La pantalla separa conceptos pendientes (2/3) y selección (1/3). Se agregan por fecha de vencimiento y se devuelven desde el último agregado; también se puede cancelar toda la selección. **Continuar** simula el cobro y genera un comprobante con QR. Al escanearlo en el mismo kiosco se abre **Facturar**, que genera una factura y XML de prueba, sin timbrado ni validez fiscal.
+La pantalla separa conceptos pendientes (2/3) y selección (1/3). Los 16 conceptos demo se agregan por fecha de vencimiento y se devuelven desde el último agregado; también se puede cancelar toda la selección. **Continuar** abre un resumen antes de confirmar el pago simulado. El comprobante incluye un QR para abrir **Facturar** en el mismo kiosco.
+
+El portal incluye **Mis comprobantes**, ayuda, teclado de correo y cierre por inactividad (aviso a los 90 segundos; cierre a los 120). Los documentos se imprimen en la impresora del kiosco o se envían por correo: comprobante PDF y factura de prueba PDF/XML. No hay descargas ni impresión desde el navegador.
+
+El menú común conecta pagos, comprobantes, facturación, estacionamiento y perfil, e indica el servicio activo. El logo vuelve al inicio de servicios, **Regresar** vuelve al paso anterior y **Salir** termina la sesión. La selección pendiente se conserva al cambiar de módulo durante la misma sesión; pasar de pago a factura mantiene el acceso a tus servicios.
 
 Los pagos demo persisten en SQLite. No se mueve dinero ni se conecta al SAT. Ver [flujo, impresión y pruebas](docs/PAGOS-DEMO.md).
 
 ### Ejecutar la interfaz en Windows
 
-Desde la raíz del repositorio, iniciar la API y dejar la terminal abierta:
+En GitHub Desktop selecciona **KioskoJsEMR**, pulsa **Fetch origin** y después **Pull origin** si hay cambios. Desde la raíz del repositorio, instala las dependencias de Python (primera ejecución o cuando cambien):
 
 ```powershell
-python api/server.py
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r api/requirements.txt
+.\.venv\Scripts\python.exe api/server.py
 ```
 
 En otra terminal, desde la raíz:
 
 ```powershell
-cd app
-npm ci
+npm run setup
 npm run dev
 ```
 
-Abrir http://127.0.0.1:1420. Matrícula `202210` o `202211`, PIN `1234`. Al actualizar el backend, reiniciar la terminal de Python. En Windows se puede imprimir o guardar PDF desde el navegador; la impresión ESC/POS del kiosco usa Debian.
+Abrir http://127.0.0.1:1420. Matrícula `202210` o `202211`, PIN `1234`. `npm run dev` ya funciona desde la raíz; la API sigue en la primera terminal. Al actualizar el backend, reiniciar Python. La impresión ESC/POS requiere el kiosco Debian; en Windows puedes probar el flujo y el correo configurado.
+
+El envío permanece deshabilitado hasta configurar SMTP. Copia `api/.env.example` a `api/.env`, completa los datos del proveedor cuando exista y reinicia la API. Nunca subas ese archivo ni uses variables `VITE_` para credenciales. Consulta [configuración y estados de correo](docs/CORREO-KIOSCO.md).
 
 ## 1. Instalación en el kiosco
 
@@ -44,10 +51,10 @@ Alternativa en dos terminales:
 ```bash
 # Terminal 1
 cd /home/dockbuy/repositorio/justo-sierra-kiosco
-python3 api/server.py
+.venv/bin/python api/server.py
 # Terminal 2
 cd /home/dockbuy/repositorio/justo-sierra-kiosco/app
-npm install
+npm ci
 npm run tauri:dev
 ```
 
@@ -84,24 +91,14 @@ No activar cobros reales hasta disponer del contrato y credenciales del proveedo
 
 ## 5. GitHub
 
-El repositorio facilitado estaba vacío al consultarlo. Para subir el proyecto desde su carpeta:
-
-```bash
-git init
-git branch -M main
-git add .
-git commit -m "feat: kiosco Justo Sierra Tauri + API mock"
-git remote add origin https://github.com/Dockbuy/dockbuy-kiosco-justo-sierra.git
-git push -u origin main
-```
-
-Si `origin` ya existe, omite `git remote add origin`. Para autenticación de Git usa SSH o credential manager; no compartas contraseñas ni tokens en la terminal.
+El desarrollo de esta demo está en **KioskoJsEMR**. Para recibir las actualizaciones, selecciona esa rama en GitHub Desktop y usa Fetch/Pull origin. No es necesario crear de nuevo el repositorio ni cambiar `main`.
 
 ## 6. Limitaciones actuales
 
 - Los alumnos, importes y conceptos son **ficticios**, inspirados en la estructura visual mostrada, no están extraídos del sistema real.
 - PIN demo común y tokens en RAM; **exclusivamente para pruebas locales**.
 - Hay impresión ESC/POS de tickets y facturas de prueba; falta validar físicamente los nuevos formatos en la impresora. No hay terminal bancaria ni Webpay real.
+- El correo necesita un proveedor SMTP configurado. La aceptación SMTP no garantiza la llegada a la bandeja; la demo no tiene webhooks de entrega ni rebotes.
 - Las imágenes de referencia proporcionadas por el usuario están integradas localmente en `app/public/images/`. No se descargan imágenes del sitio en ejecución.
 - Google Fonts Inter requiere red; se usa fallback si el kiosco está desconectado. Para producción offline, instalar Inter localmente si se dispone de licencia/distribución adecuada.
 - Deben revisarse autorización de uso del logotipo/fotografías y requisitos de privacidad antes del despliegue.
@@ -112,4 +109,4 @@ En Inicio de sesión, toca Matrícula o Contraseña/PIN: se abrirá un teclado n
 
 Encabezados, títulos y botones usan la familia Roboto Condensed (Google Fonts; para uso sin red es aconsejable instalar esta familia en el sistema Debian mediante el administrador de paquetes). Los textos normales mantienen Inter.
 
-Para reemplazar la versión previa, primero detén la aplicación (Ctrl+C donde corre start-demo.sh), haz una copia de tu proyecto anterior y descomprime este ZIP desde `/home/dockbuy/repositorio`. Después ejecuta `bash scripts/start-demo.sh`.
+Para actualizar, detén la aplicación, descarga los cambios de `KioskoJsEMR` y actualiza las dependencias antes de iniciar de nuevo. Los archivos `.env` y las bases SQLite locales no forman parte del repositorio.

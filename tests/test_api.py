@@ -20,6 +20,9 @@ import server
 
 class ApiTests(unittest.TestCase):
     def setUp(self):
+        # Estas pruebas de contrato usan el catálogo original de cuatro conceptos.
+        self.catalog_mock = patch.object(server, 'CONCEPTS', [c for c in server.CONCEPTS if c['id'] in (36,45,55,56)])
+        self.catalog_mock.start()
         self.temp = tempfile.TemporaryDirectory()
         parking.DB = pathlib.Path(self.temp.name) / 'parking.sqlite3'
         payments.DB = pathlib.Path(self.temp.name) / 'payments.sqlite3'
@@ -33,7 +36,7 @@ class ApiTests(unittest.TestCase):
 
     def tearDown(self):
         self.http.shutdown(); self.http.server_close(); self.thread.join()
-        self.print_mock.stop(); self.temp.cleanup()
+        self.print_mock.stop(); self.catalog_mock.stop(); self.temp.cleanup()
 
     def req(self, path, body=None, token=None, method='POST', headers=None):
         connection = http.client.HTTPConnection('127.0.0.1', self.http.server_port, timeout=5)
@@ -111,10 +114,12 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(first['invoice']['folio'], second['invoice']['folio'])
         self.assertTrue(second['reused'])
         self.assertFalse(first['invoice']['timbrado'])
-        root = ET.fromstring(first['invoice']['xml'])
+        xml = payments.lookup(code)['invoice']['xml']
+        self.assertNotIn('xml',first['invoice'])
+        root = ET.fromstring(xml)
         self.assertTrue(root.tag.endswith('Comprobante'))
-        self.assertIn('SIN VALIDEZ FISCAL', first['invoice']['xml'])
-        self.assertNotIn('TimbreFiscalDigital', first['invoice']['xml'])
+        self.assertIn('SIN VALIDEZ FISCAL', xml)
+        self.assertNotIn('TimbreFiscalDigital', xml)
         self.assertEqual(self.printer.call_count, 2)
 
     def test_invoice_requires_existing_payment(self):

@@ -9,8 +9,13 @@ import subprocess
 import threading
 import time
 import urllib.parse
+from pathlib import Path
+from dotenv import load_dotenv
+load_dotenv(Path(__file__).parent / '.env')
 import parking
 import payments
+import mail_delivery
+from catalog import CONCEPTS
 
 HOST = os.getenv('MOCK_HOST', '127.0.0.1')
 PORT = int(os.getenv('MOCK_PORT', '8787'))
@@ -21,12 +26,6 @@ STUDENTS={
  '202210':{'id':'6019','matricula':'202210','nombre':'ALUMNO DEMOSTRACIÓN','nivel':'Preparatoria','grado':'Sexto','grupo':'A','ciclo':'2026/2027','email':'alumno.demo@ejemplo.invalid'},
  '202211':{'id':'6020','matricula':'202211','nombre':'ALUMNA PRUEBA','nivel':'Licenciatura','grado':'Tercero','grupo':'B','ciclo':'2026/2027','email':'alumna.demo@ejemplo.invalid'}
 }
-CONCEPTS=[
- {'id':36,'nombre':'COLEGIATURA REINSCRIPCIÓN PRIMARIA SEXTO','grupo':'COLEGIATURA','ciclo':'2026/2027','periodo':'03','importe':3045,'descuento':420,'restante':2625,'estado':'pendiente','fechaVencimiento':'2026-11-30'},
- {'id':45,'nombre':'TRANSPORTE BASES SOBRE RUTA COMPLETO','grupo':'TRANSPORTE','ciclo':'2026/2027','periodo':'03','importe':2900,'descuento':0,'restante':2900,'estado':'pendiente','fechaVencimiento':'2026-11-01'},
- {'id':55,'nombre':'SERVICIOS COMPLEMENTARIOS EXTRA CLASE ARTÍSTICA','grupo':'SERVICIOS COMPLEMENTARIOS','ciclo':'2026/2027','periodo':'06','importe':940,'descuento':0,'restante':940,'estado':'anticipado','fechaVencimiento':'2027-02-01'},
- {'id':56,'nombre':'SERVICIOS COMPLEMENTARIOS MÚSICA CLUB DE BANDA SINFÓNICA','grupo':'SERVICIOS COMPLEMENTARIOS','ciclo':'2026/2027','periodo':'08','importe':940,'descuento':0,'restante':940,'estado':'anticipado','fechaVencimiento':'2027-04-01'}
-]
 
 class Handler(BaseHTTPRequestHandler):
     def respond(self, code, body):
@@ -80,6 +79,8 @@ class Handler(BaseHTTPRequestHandler):
     def guarded(self, action):
         try:
             action()
+        except mail_delivery.DeliveryError as exc:
+            self.respond(exc.status, {'error':str(exc)})
         except LookupError as exc:
             self.respond(404, {'error': str(exc)})
         except ValueError as exc:
@@ -104,6 +105,8 @@ class Handler(BaseHTTPRequestHandler):
         path = urllib.parse.urlparse(self.path).path
         if path == '/api/health':
             return self.respond(200, {'status': 'ok', 'modo': 'DEMO', 'integracionReal': False})
+        if path == '/api/services':
+            return self.respond(200, mail_delivery.capabilities())
         if path == '/api/parking/printer':
             return self.respond(200, {'printer': parking.printer_name(), 'demo': True})
         session = self.require_session()
@@ -111,6 +114,8 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == '/api/me':
             return self.respond(200, {'estudiante': STUDENTS[session['matricula']]})
+        if path == '/api/payments/history':
+            return self.respond(200, {'payments':payments.history(session['matricula']), 'demo':True})
         if path == '/api/charges':
             return self.respond(200, {'matricula': session['matricula'], 'conceptos': payments.pending(session['matricula'], CONCEPTS), 'moneda': 'MXN', 'demo': True})
         return self.respond(404, {'error': 'Ruta no encontrada'})
@@ -158,11 +163,17 @@ class Handler(BaseHTTPRequestHandler):
                 raise LookupError(str(exc))
         # El QR aleatorio es la llave del comprobante ficticio en este kiosco.
         if path == '/api/billing/lookup':
-            return self.respond(200, payments.lookup(data.get('code', '')))
+            record=payments.lookup(data.get('code', ''))
+            if record['invoice']:
+                record['invoice']={k:v for k,v in record['invoice'].items() if k!='xml'}
+            return self.respond(200, record)
+        if path == '/api/billing/email':
+            result=mail_delivery.send(data.get('code',''), data.get('kind','payment'), data.get('email',''), data.get('request_id',''))
+            return self.respond(202 if result['status']=='sending' else 200, result)
         if path == '/api/billing/invoice':
             invoice, reused = payments.create_invoice(data.get('code', ''))
             status = {'print_skipped': True} if reused else self.print_document(invoice, True)
-            return self.respond(200, {'invoice': invoice, 'reused': reused, **status})
+            return self.respond(200, {'invoice': {k:v for k,v in invoice.items() if k!='xml'}, 'reused': reused, **status})
         if path == '/api/billing/print':
             record = payments.lookup(data.get('code', ''))
             kind = data.get('kind', 'payment')

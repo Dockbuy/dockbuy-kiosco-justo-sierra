@@ -1,0 +1,12 @@
+{
+  "name": "dockbuy-kiosco-workspace",
+  "private": true,
+  "scripts": {
+    "setup": "npm --prefix app ci",
+    "dev": "npm --prefix app run dev",
+    "build": "npm --prefix app run build",
+    "test": "npm --prefix app test",
+    "test:e2e": "npm --prefix app run test:e2e",
+    "tauri:dev": "npm --prefix app run tauri:dev"
+  }
+}

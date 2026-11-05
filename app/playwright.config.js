@@ -5,7 +5,7 @@ export default defineConfig({
     launchOptions:process.env.TEST_BROWSER_PATH?{executablePath:process.env.TEST_BROWSER_PATH}:{},
   },
   webServer:[
-    {command:`${process.platform==='win32'?'python':'python3'} ../tests/e2e_server.py`,url:'http://127.0.0.1:8878/api/health',reuseExistingServer:false},
+    {command:`"${process.env.TEST_PYTHON || (process.platform==='win32'?'python':'python3')}" ../tests/e2e_server.py`,url:'http://127.0.0.1:8878/api/health',reuseExistingServer:false},
     {command:'npm run dev -- --port 1421',url:'http://127.0.0.1:1421',env:{VITE_API_URL:'http://127.0.0.1:8878/api'},reuseExistingServer:false},
   ],
 })

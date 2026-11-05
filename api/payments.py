@@ -55,6 +55,12 @@ def pending(matricula, concepts):
         return _pending(con, matricula, concepts)
 
 
+def history(matricula):
+    with connection() as con:
+        rows=con.execute('SELECT payload FROM payments WHERE matricula=? ORDER BY rowid DESC LIMIT 30',(matricula,)).fetchall()
+        return [json.loads(row['payload']) for row in rows]
+
+
 def select_in_order(available, ids):
     if not isinstance(ids, list) or not ids or any(type(i) is not int for i in ids):
         raise ValueError('Selecciona al menos un concepto válido.')
