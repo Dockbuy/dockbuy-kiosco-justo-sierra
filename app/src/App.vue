@@ -8,6 +8,8 @@ import BillingFlow from './components/BillingFlow.vue'
 import IdleSession from './components/IdleSession.vue'
 import PaymentHistory from './components/PaymentHistory.vue'
 import KioskNavigation from './components/KioskNavigation.vue'
+import CampusPortal from './components/CampusPortal.vue'
+import './campus.css'
 import './payments.css'
 import './kiosk.css'
 const view=ref('welcome'),matricula=ref('202210'),pin=ref('1234'),token=ref(''),student=ref(null),charges=ref([]),busy=ref(false),error=ref(''),online=ref(false),showPin=ref(false),clock=ref('')
@@ -15,6 +17,11 @@ const keyboardOpen=ref(false),activeField=ref('matricula'),keyboardShift=ref(fal
 const billingCode=ref(''),billingScanVersion=ref(0),sessionNotice=ref(''),helpOpen=ref(false)
 const draftSelection=ref([]),navigationLocked=ref(false),paymentFlow=ref(null),historyFlow=ref(null),billingFlow=ref(null),billingReturn=ref('welcome'),helpClose=ref(null)
 const pendingTotal=computed(()=>charges.value.reduce((sum,c)=>sum+c.restante,0))
+const campusFlow=ref(null),campusInitial=ref('hub'),nextCampus=ref(false),sessionId=ref(crypto.randomUUID()),largeText=ref(false),highContrast=ref(false),extendedSession=ref(false),accessibilityOpen=ref(false)
+async function refreshCharges(){if(!token.value)return;try{const d=await request('/charges',{token:token.value,signal:sessionController.signal});if(!sessionController.signal.aborted)charges.value=d.conceptos}catch(e){if(e.status===401)expireSession()}}
+function campusLogin(module){campusInitial.value=module;nextCampus.value=true;navigate('login')}
+function openCampus(module='hub'){if(navigationLocked.value)return;campusInitial.value=module;if(view.value==='campus')campusFlow.value?.open(module);else navigate('campus')}
+let experiencedOutage=false
 const keyboardRows=computed(()=>activeField.value==='matricula'||activeField.value==='pin' ? [['1','2','3'],['4','5','6'],['7','8','9'],['BORRAR','0','LISTO']] : [['1','2','3','4','5','6','7','8','9','0'],['Q','W','E','R','T','Y','U','I','O','P'],['A','S','D','F','G','H','J','K','L'],['MAYÚS','Z','X','C','V','B','N','M','BORRAR'],['ESPACIO','@','.','-','LISTO']])
 function openKeyboard(field){activeField.value=field;keyboardShift.value=false;keyboardOpen.value=true}
 function closeKeyboard(){keyboardOpen.value=false}
@@ -27,11 +34,12 @@ function pressKey(key){
 }
 const currency=n=>new Intl.NumberFormat('es-MX',{style:'currency',currency:'MXN'}).format(n)
 let ticker,expiry,loginGeneration=0,sessionController=new AbortController(),healthController=new AbortController()
-async function health(){try{const r=await request('/health',{timeout:4000,signal:healthController.signal});online.value=r.status==='ok'}catch{if(!healthController.signal.aborted)online.value=false}}
+async function health(){try{const r=await request('/health',{timeout:4000,signal:healthController.signal});online.value=r.status==='ok';if(experiencedOutage){request('/campus/event',{method:'POST',body:{session:sessionId.value,module:'system',event:'api_offline'},timeout:4000}).catch(()=>{});experiencedOutage=false}}catch{if(!healthController.signal.aborted){online.value=false;experiencedOutage=true}}}
 function reset(){
  sessionController.abort();sessionController=new AbortController();++loginGeneration;clearTimeout(expiry)
  cancelParking();closeKeyboard();token.value='';student.value=null;charges.value=[];view.value='welcome';error.value='';busy.value=false;showPin.value=false;pin.value=''
  billingCode.value='';scannerBuffer='';matricula.value='';helpOpen.value=false;sessionNotice.value='';draftSelection.value=[];navigationLocked.value=false;billingReturn.value='welcome'
+ campusInitial.value='hub';nextCampus.value=false;sessionId.value=crypto.randomUUID();largeText.value=false;highContrast.value=false;extendedSession.value=false;accessibilityOpen.value=false;completedViews.clear()
 }
 function logout(){
  const previous=token.value;reset()
@@ -49,7 +57,7 @@ async function login(){
   issuedToken=r.access_token
   const d=await request('/charges',{token:issuedToken,signal})
   if(signal.aborted||generation!==loginGeneration)return
-  token.value=issuedToken;student.value=r.estudiante;charges.value=d.conceptos;view.value='dashboard';accepted=true
+  token.value=issuedToken;student.value=r.estudiante;charges.value=d.conceptos;view.value=nextCampus.value?'campus':'dashboard';nextCampus.value=false;accepted=true
   expiry=setTimeout(expireSession,r.expires_in*1000)
  }catch(e){if(!signal.aborted&&generation===loginGeneration){error.value=e.message;token.value=''}}
  finally{
@@ -74,9 +82,11 @@ function navigate(target){
  if(target==='billing'){openBilling();return}
  if(view.value==='parking')cancelParking()
  if(target==='parking'){parkingHome();return}
+ if(target==='charges')refreshCharges()
  view.value=target
 }
 function back(){
+ if(view.value==='campus'){campusFlow.value?.goBack();return}
  if(keyboardOpen.value){closeKeyboard();return}
  if(helpOpen.value){helpOpen.value=false;return}
  if(view.value==='charges'){paymentFlow.value?.goBack();return}
@@ -90,6 +100,10 @@ function back(){
 }
 function billingBack(){navigate(token.value&&['charges','history','dashboard','student'].includes(billingReturn.value)?billingReturn.value:token.value?'dashboard':'welcome')}
 function closeTopLayer(e){if(e.key==='Escape'&&helpOpen.value){helpOpen.value=false;e.preventDefault()}}
+const completedViews=new Set()
+function trackView(module,event){if(!['charges','history','billing','parking'].includes(module))return;request('/campus/event',{method:'POST',body:{session:sessionId.value,module,event},timeout:4000}).catch(()=>{})}
+function completed(module){completedViews.add(module);trackView(module,'complete')}
+watch(view,(next,previous)=>{if(!completedViews.has(previous))trackView(previous,'abandon');trackView(next,'open')},{flush:'sync'})
 watch(view,async()=>{await nextTick();window.scrollTo(0,0)})
 watch(helpOpen,async opened=>{if(opened){await nextTick();helpClose.value?.focus()}})
 
@@ -103,7 +117,7 @@ async function parkingAction(action){
  try{await action(signal)}catch(e){if(!signal.aborted)parkingError.value=e.message}
  finally{if(!signal.aborted)parkingBusy.value=false}
 }
-async function issueParking(){await parkingAction(async signal=>{const r=await request('/parking/issue',{method:'POST',body:{},signal});if(!signal.aborted){parkingTicket.value=r.ticket;parkingStep.value='issued'}})}
+async function issueParking(){await parkingAction(async signal=>{const r=await request('/parking/issue',{method:'POST',body:{},signal});if(!signal.aborted){parkingTicket.value=r.ticket;parkingStep.value='issued';completed('parking')}})}
 function beginScan(){cancelParking();parkingStep.value='scan';scannerBuffer=''}
 async function lookupParking(code=parkingCode.value){closeKeyboard();await parkingAction(async signal=>{const r=await request('/parking/quote',{method:'POST',body:{code:code.trim().toUpperCase()},signal});if(!signal.aborted){parkingQuote.value=r;parkingStep.value='quote'}})}
 async function reprintParking(){if(!parkingTicket.value)return;await parkingAction(async signal=>{await request('/parking/reprint',{method:'POST',body:{code:parkingTicket.value.code},signal});if(!signal.aborted)parkingTicket.value.printed=true})}
@@ -128,10 +142,10 @@ onMounted(()=>{window.addEventListener('keydown',scannerKey);window.addEventList
 onUnmounted(()=>{window.removeEventListener('keydown',scannerKey);window.removeEventListener('keydown',closeTopLayer);clearInterval(ticker);clearTimeout(expiry);sessionController.abort();healthController.abort();parkingController.abort()})
 </script>
 <template>
-<div class="screen" :class="{interior:!['welcome','login'].includes(view),'keyboard-visible':keyboardOpen}">
- <IdleSession :active="view!=='welcome'" @expired="idleExpired"/>
- <KioskNavigation v-if="!['welcome','login'].includes(view)" :view="view" :authenticated="!!token" :student="student" :online="online" :clock="clock" :draft-count="draftSelection.length" :locked="navigationLocked" @navigate="navigate" @home="home" @back="back" @exit="logout" @help="helpOpen=true"/>
- <BillingFlow ref="billingFlow" v-if="view==='billing'" :code="billingCode" :scan-version="billingScanVersion" @home="logout" @back="billingBack"/>
+<div class="screen" :class="{interior:!['welcome','login'].includes(view),'keyboard-visible':keyboardOpen,'large-text':largeText,'high-contrast':highContrast}">
+ <IdleSession :active="view!=='welcome'" :extended="extendedSession" @expired="idleExpired"/>
+ <KioskNavigation v-if="!['welcome','login'].includes(view)" :view="view" :authenticated="!!token" :student="student" :online="online" :clock="clock" :draft-count="draftSelection.length" :locked="navigationLocked" @navigate="target=>target==='campus'?openCampus():navigate(target)" @home="home" @back="back" @exit="logout" @help="helpOpen=true" @accessibility="accessibilityOpen=!accessibilityOpen"/>
+ <BillingFlow ref="billingFlow" v-if="view==='billing'" :code="billingCode" :scan-version="billingScanVersion" @home="logout" @back="billingBack" @completed="completed('billing')"/>
  <template v-else-if="view==='parking'">
  <div class="parking-page">
 
@@ -163,17 +177,19 @@ onUnmounted(()=>{window.removeEventListener('keydown',scannerKey);window.removeE
  </template>
  <template v-else>
 
-  <main class="content"><div class="breadcrumb"><button @click="home"><Home :size="16"/> Inicio</button><ChevronRight :size="14"/> <span>{{view==='dashboard'?'Mis servicios':view==='charges'?'Servicios y pagos':view==='history'?'Mis comprobantes':'Mi información'}}</span></div>
+  <main class="content"><div class="breadcrumb"><button @click="home"><Home :size="16"/> Inicio</button><ChevronRight :size="14"/> <span>{{view==='dashboard'?'Mis servicios':view==='charges'?'Servicios y pagos':view==='history'?'Mis comprobantes':view==='campus'?'Servicios del campus':'Mi información'}}</span></div>
    <template v-if="view==='dashboard'">
     <section class="dashboard-welcome"><div><span class="eyebrow red">TU ESPACIO DE AUTOSERVICIO</span><h1>Hola, {{student?.nombre.split(' ')[0]}}</h1><p>Elige un servicio. Al terminar, pulsa Finalizar y salir.</p></div><button class="logo-home" aria-label="Logo Justo Sierra — inicio" @click="home"><img src="/images/logo.jpg" alt="Justo Sierra"></button></section>
     <div class="dashboard-stats"><div><span>SALDO PENDIENTE DEMO</span><strong>{{currency(pendingTotal)}}</strong></div><div><span>CONCEPTOS PENDIENTES</span><strong>{{charges.length}}</strong></div><div><span>PRÓXIMO PASO</span><b>{{charges.length?'Revisa tus conceptos por vencimiento':'Consulta tus comprobantes'}}</b></div></div>
+    <section class="campus-launch"><div><span class="eyebrow">MÁS CERCA DE TU CAMPUS</span><h2>Tu siguiente paso, aquí.</h2><p>Constancias, citas, biblioteca, reinscripción y actividades.</p><button class="btn-primary" @click="openCampus()">EXPLORAR TODOS LOS SERVICIOS <ChevronRight :size="20"/></button></div><div class="campus-quick"><button @click="openCampus('seguimiento')"><FileText :size="25"/><span>Mis trámites<small>Consulta tu avance</small></span><ChevronRight :size="18"/></button><button @click="openCampus('citas')"><Clock3 :size="25"/><span>Agendar una cita<small>Elige tu horario</small></span><ChevronRight :size="18"/></button><button @click="openCampus('turnos')"><Ticket :size="25"/><span>Turnos de atención<small>Consulta tu lugar</small></span><ChevronRight :size="18"/></button></div></section>
     <div class="service-grid"><button class="service-card primary-service" @click="navigate('charges')"><Wallet :size="35"/><span>01 · PAGOS</span><h2>Servicios y pagos</h2><p>Colegiaturas, inscripción, transporte y servicios escolares.</p><b>CONSULTAR CONCEPTOS <ChevronRight :size="20"/></b></button><button class="service-card" @click="navigate('history')"><ReceiptText :size="35"/><span>02 · COMPROBANTES</span><h2>Mis comprobantes</h2><p>Recupera tu ticket, reimprime o envíalo por correo.</p><b>VER COMPROBANTES <ChevronRight :size="20"/></b></button><button class="service-card" @click="navigate('student')"><UserRound :size="35"/><span>03 · PERFIL</span><h2>Mi información</h2><p>Consulta tus datos académicos de demostración.</p><b>VER INFORMACIÓN <ChevronRight :size="20"/></b></button></div>
     <div class="secondary-services"><button @click="openBilling()"><FileText :size="28"/><span><b>Facturar un ticket</b><small>Escanea tu QR y recibe una factura de prueba.</small></span><ChevronRight :size="20"/></button><button @click="navigate('parking')"><CarFront :size="28"/><span><b>Estacionamiento</b><small>Genera un boleto o consulta tu estancia.</small></span><ChevronRight :size="20"/></button></div>
     <div class="kiosk-guidance"><ShieldCheck :size="22"/><p>Tu selección se conserva al cambiar de servicio durante esta sesión. Al salir se limpian tus datos de la pantalla.</p><button class="btn-outline" @click="helpOpen=true"><HelpCircle :size="18"/> AYUDA</button></div>
    </template>
+   <CampusPortal ref="campusFlow" v-else-if="view==='campus'" :token="token" :initial="campusInitial" :session="sessionId" @back="home" @login="campusLogin" @payments="navigate('charges')" @updated="refreshCharges" @expired="expireSession" @locked="navigationLocked=$event"/>
    <template v-else-if="view==='student'"><h1>MI INFORMACIÓN</h1><p class="subtitle">INFORMACIÓN ACADÉMICA DEL ESTUDIANTE</p><div class="profile-card"><div class="avatar"><UserRound :size="46"/></div><div><h2>{{student?.nombre}}</h2><p>{{student?.matricula}}</p></div></div><div class="detail-grid"><div v-for="[key,val] in [['Matrícula',student?.matricula],['Nivel académico',student?.nivel],['Grado',student?.grado],['Grupo',student?.grupo],['Ciclo escolar',student?.ciclo],['Correo de prueba',student?.email]]" :key="key"><span>{{key}}</span><b>{{val}}</b></div></div><div class="notice">Información completamente ficticia, obtenida de la API local de demostración.</div></template>
    <PaymentHistory ref="historyFlow" v-else-if="view==='history'" :token="token" @back="home" @expired="expireSession" @billing="openBilling" @finish="logout"/>
-   <PaymentFlow ref="paymentFlow" :selection="draftSelection" @selection="draftSelection=$event" @locked="navigationLocked=$event" v-else-if="view==='charges'" :token="token" :charges="charges" @expired="expireSession" @updated="charges=$event" @billing="openBilling" @back="home" @finish="logout"/>
+   <PaymentFlow ref="paymentFlow" :selection="draftSelection" @selection="draftSelection=$event" @locked="navigationLocked=$event" v-else-if="view==='charges'" :token="token" :charges="charges" @expired="expireSession" @updated="charges=$event" @completed="completed('charges')" @billing="openBilling" @back="home" @finish="logout"/>
   </main>
  </template>
  <div v-if="keyboardOpen && ['login','parking'].includes(view)" class="keyboard-backdrop" @click="closeKeyboard"></div>
@@ -184,6 +200,7 @@ onUnmounted(()=>{window.removeEventListener('keydown',scannerKey);window.removeE
    <p class="keyboard-help">Toca los números para escribir · pulsa LISTO para continuar</p>
  </section>
  <div v-if="helpOpen" class="kiosk-modal-backdrop" @click.self="helpOpen=false" @keydown="trapFocus"><section class="kiosk-modal" role="dialog" aria-modal="true" aria-labelledby="help-title"><button ref="helpClose" class="icon-close help-close" @click="helpOpen=false" aria-label="Cerrar ayuda">✕</button><h2 id="help-title">¿CÓMO USAR EL KIOSCO?</h2><ol class="help-steps"><li>Usa el menú superior para cambiar de servicio. El logo vuelve al inicio; Regresar vuelve al paso anterior y Salir termina la sesión.</li><li>Selecciona los conceptos en orden de vencimiento y revisa el resumen.</li><li>Confirma el pago demo. Retira tu ticket o solicita el envío por correo.</li><li>Escanea el QR en este kiosco para generar una factura de prueba.</li><li>Si no sale el ticket, recupéralo desde Mis comprobantes.</li></ol><p>No ingreses datos bancarios. Al terminar, cierra tu sesión.</p><button class="btn-primary full" @click="helpOpen=false">ENTENDIDO</button></section></div>
+ <div class="accessibility-bar" :class="{'is-open':accessibilityOpen}"><button @click="accessibilityOpen=!accessibilityOpen" :aria-expanded="accessibilityOpen">Aa · Accesibilidad</button><template v-if="accessibilityOpen"><button :aria-pressed="largeText" @click="largeText=!largeText">Texto grande</button><button :aria-pressed="highContrast" @click="highContrast=!highContrast">Alto contraste</button><button :aria-pressed="extendedSession" @click="extendedSession=!extendedSession">Más tiempo (5 min)</button></template><button v-if="view==='welcome'" @click="openCampus('directorio')">Directorio y avisos</button><button v-else-if="!navigationLocked" @click="openCampus('encuesta')">Tu opinión</button></div>
  <footer><div><button class="logo-home" :disabled="navigationLocked" @click="home" aria-label="Inicio desde el pie de página"><img src="/images/logo.jpg" alt="Logo Justo Sierra"></button><span><b>Justo Sierra</b><small>Educar para la vida</small></span></div><p>PLATAFORMA DE DEMOSTRACIÓN · DOCKBUY · 2026<br>Pagos y facturas de prueba · sin cobro real ni validez fiscal</p></footer>
 </div>
 </template>

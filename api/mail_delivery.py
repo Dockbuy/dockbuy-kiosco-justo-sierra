@@ -71,7 +71,7 @@ def initialize(con):
 def build_message(document, kind, recipient, settings, request_id):
     message=EmailMessage()
     message['From']=settings.sender; message['To']=recipient
-    message['Subject']='Justo Sierra - '+('factura de prueba' if kind=='invoice' else 'comprobante de pago demo')
+    message['Subject']='Justo Sierra - '+('constancia de demostración' if kind=='campus' else 'factura de prueba' if kind=='invoice' else 'comprobante de pago demo')
     message['Date']=formatdate(localtime=False)
     message['Message-ID']=make_msgid(idstring=request_id,domain=settings.sender.rsplit('@',1)[1])
     message.set_content('Adjuntamos tu documento de demostración del kiosco Justo Sierra.\n\n'
@@ -79,7 +79,13 @@ def build_message(document, kind, recipient, settings, request_id):
                         'No es una factura timbrada ni un comprobante de pago real.\n'
                         'Puedes consultar el documento escaneando su QR en el mismo kiosco.\n')
     filename=document.get('folio',document['code'] if 'code' in document else 'documento')
-    message.add_attachment(make_pdf(document,kind=='invoice'),maintype='application',subtype='pdf',filename=filename+'-DEMO.pdf')
+    if kind=='campus':
+        from campus_pdf import make_constancia
+        message.set_content('Adjuntamos la constancia de DEMOSTRACIÓN solicitada. Sin validez académica, oficial o fiscal. No acredita estudios ni calificaciones reales.')
+        pdf=make_constancia(document)
+    else:
+        pdf=make_pdf(document,kind=='invoice')
+    message.add_attachment(pdf,maintype='application',subtype='pdf',filename=filename+'-DEMO.pdf')
     if kind=='invoice':
         message.add_attachment(document['xml'].encode('utf-8'),maintype='application',subtype='xml',filename=filename+'-DEMO.xml')
     return message
@@ -120,9 +126,11 @@ def response(row,reused=False):
     return {'delivery_id':row['request_id'],'status':row['status'],'recipient':row['masked_recipient'],'reused':reused}
 
 
-def send(code,kind,recipient,request_id):
-    code=payments.normalize_code(code)
-    if kind not in ('payment','invoice'):
+def send(code,kind,recipient,request_id,document=None):
+    campus_document=kind=='campus' and document is not None
+    if not campus_document:
+        code=payments.normalize_code(code)
+    if kind not in ('payment','invoice') and not campus_document:
         raise DeliveryError('Tipo de documento inválido.',400)
     recipient=validate_email(recipient)
     if not isinstance(request_id,str) or not re.fullmatch(r'[A-Za-z0-9_-]{16,80}',request_id):
@@ -142,8 +150,9 @@ def send(code,kind,recipient,request_id):
     settings=config()
     if not settings:
         raise DeliveryError('El envío por correo aún no está disponible en este kiosco. Puedes imprimir tu ticket.',503)
-    record=payments.lookup(code)
-    document=record[kind]
+    if not campus_document:
+        record=payments.lookup(code)
+        document=record[kind]
     if not document:
         raise DeliveryError('Primero genera la factura de prueba.',400)
     message=build_message(document,kind,recipient,settings,request_id)

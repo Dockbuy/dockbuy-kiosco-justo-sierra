@@ -3,7 +3,7 @@ import {onMounted,onUnmounted,ref,watch,nextTick} from 'vue'
 import {Clock3} from 'lucide-vue-next'
 import {idleState} from '../idle-session'
 import {trapFocus} from '../modal-focus'
-const props=defineProps({active:Boolean})
+const props=defineProps({active:Boolean,extended:Boolean})
 const emit=defineEmits(['expired'])
 const warning=ref(false),seconds=ref(30),continueButton=ref(null)
 let lastActivity=Date.now(),timer
@@ -13,7 +13,7 @@ watch(()=>props.active,()=>resume())
 watch(warning,async visible=>{if(visible){await nextTick();continueButton.value?.focus()}})
 onMounted(()=>{
   window.addEventListener('pointerdown',activity,{passive:true});window.addEventListener('keydown',activity)
-  timer=setInterval(()=>{if(!props.active)return;const state=idleState(lastActivity,Date.now());seconds.value=state.seconds;warning.value=state.warning;if(state.expired){resume();emit('expired')}},1000)
+  timer=setInterval(()=>{if(!props.active)return;const state=idleState(lastActivity,Date.now(),props.extended?300000:120000);seconds.value=state.seconds;warning.value=state.warning;if(state.expired){resume();emit('expired')}},1000)
 })
 onUnmounted(()=>{clearInterval(timer);window.removeEventListener('pointerdown',activity);window.removeEventListener('keydown',activity)})
 </script>

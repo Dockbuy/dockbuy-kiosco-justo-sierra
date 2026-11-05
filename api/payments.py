@@ -32,6 +32,9 @@ def connection():
             CREATE TABLE IF NOT EXISTS invoices (
                 payment_code TEXT PRIMARY KEY, payload TEXT NOT NULL);
         ''')
+        import campus
+        campus.initialize(con)
+        con.commit()
         yield con
         con.commit()
     except Exception:
@@ -46,6 +49,8 @@ def ordered(concepts):
 
 
 def _pending(con, matricula, concepts):
+    from campus import additional_charges
+    concepts = list(concepts) + additional_charges(con, matricula)
     paid = {r['concept_id'] for r in con.execute('SELECT concept_id FROM paid_concepts WHERE matricula=?', (matricula,))}
     return [c for c in ordered(concepts) if c['id'] not in paid]
 

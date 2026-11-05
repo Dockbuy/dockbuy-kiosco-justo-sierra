@@ -6,7 +6,7 @@ import {orderedCharges, addNext, removeLast} from '../payment-order'
 import ReceiptCard from './ReceiptCard.vue'
 import PrintActions from './PrintActions.vue'
 const props = defineProps({token:String, charges:Array, selection:{type:Array,default:()=>[]}})
-const emit = defineEmits(['expired', 'updated', 'billing', 'back', 'finish', 'selection', 'locked'])
+const emit = defineEmits(['expired', 'updated', 'billing', 'back', 'finish', 'selection', 'locked', 'completed'])
 const selected = ref([...props.selection]), stage = ref('select'), error = ref(''), payment = ref(null), printResult = ref(null)
 const controller = new AbortController()
 const operationId = ref('')
@@ -68,7 +68,7 @@ async function pay() {
     await new Promise(resolve => setTimeout(resolve, 700))
     if (controller.signal.aborted) return
     payment.value = response.payment; printResult.value = response; stage.value = 'receipt'
-    emit('updated', response.conceptos)
+    emit('updated', response.conceptos);emit('completed')
     selected.value = []; operationId.value = ''
   } catch (e) {
     if (controller.signal.aborted) return

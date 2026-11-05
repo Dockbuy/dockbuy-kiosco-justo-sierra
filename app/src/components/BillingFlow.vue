@@ -5,7 +5,7 @@ import {request} from '../api'
 import ReceiptCard from './ReceiptCard.vue'
 import PrintActions from './PrintActions.vue'
 const props = defineProps({code:String, scanVersion:Number})
-const emit = defineEmits(['home','back'])
+const emit = defineEmits(['home','back','completed'])
 const code = ref(''), payment = ref(null), invoice = ref(null), result = ref(null), error = ref(''), busy = ref(false), keyboard = ref(false)
 const keys = ['1234567890','QWERTYUIOP','ASDFGHJKL','ZXCVBNM-']
 let controller = new AbortController(), generation = 0
@@ -29,7 +29,7 @@ async function generate() {
   try {
     const response = await request('/billing/invoice', {method:'POST', body:{code:payment.value.code}, signal})
     if (signal.aborted || current !== generation) return
-    invoice.value = response.invoice; result.value = response
+    invoice.value = response.invoice; result.value = response;emit('completed')
   } catch (e) { if (!signal.aborted && current === generation) error.value = e.message }
   finally { if (!signal.aborted && current === generation) busy.value = false }
 }

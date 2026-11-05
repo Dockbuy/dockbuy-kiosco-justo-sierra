@@ -3,7 +3,7 @@ import {computed,onMounted,onUnmounted,ref,watch,nextTick} from 'vue'
 import {Mail,CheckCircle2,AlertCircle,ArrowLeft,Send} from 'lucide-vue-next'
 import {request} from '../api'
 import {trapFocus} from '../modal-focus'
-const props=defineProps({code:{type:String,required:true},invoice:Boolean})
+const props=defineProps({code:{type:String,required:true},invoice:Boolean,campus:Boolean,token:String})
 const available=ref(null),open=ref(false),email=ref(''),confirm=ref(''),field=ref('email'),keyboard=ref(false),stage=ref('edit'),busy=ref(false),error=ref(''),result=ref(null)
 const controller=new AbortController()
 const rows=['1234567890','qwertyuiop','asdfghjkl','zxcvbnm']
@@ -22,7 +22,7 @@ async function send(){
   busy.value=true;error.value='';keyboard.value=false
   requestId ||= crypto.randomUUID();attemptEmail ||= email.value.trim()
   try{
-    const response=await request('/billing/email',{method:'POST',body:{code:props.code,kind:props.invoice?'invoice':'payment',email:attemptEmail,request_id:requestId},signal:controller.signal,timeout:45000})
+    const response=await request(props.campus?'/campus/email':'/billing/email',{method:'POST',token:props.campus?props.token:undefined,body:{code:props.code,kind:props.invoice?'invoice':'payment',email:attemptEmail,request_id:requestId},signal:controller.signal,timeout:45000})
     if(controller.signal.aborted)return
     result.value=response;stage.value='result'
     if(response.status==='accepted'){email.value='';confirm.value='';attemptEmail=''}
@@ -34,11 +34,11 @@ async function send(){
   <div class="email-delivery">
     <button class="btn-outline email-trigger" :disabled="available!==true" @click="open=true"><Mail :size="20"/> ENVIAR POR CORREO</button>
     <p v-if="available===null" class="delivery-note">Consultando servicio de correo…</p>
-    <p v-else-if="!available" class="delivery-note">El correo aún no está disponible en este kiosco. Puedes imprimir tu ticket o consultarlo después.</p>
-    <p v-else class="delivery-note">Recibe {{invoice?'PDF y XML de prueba':'tu comprobante PDF'}} en tu correo. No se descargan archivos en el kiosco.</p>
+    <p v-else-if="!available" class="delivery-note">El correo aún no está disponible en este kiosco. {{campus?'Tu constancia seguirá disponible en Mis trámites cuando se active el correo.':'Puedes imprimir tu ticket o consultarlo después.'}}</p>
+    <p v-else class="delivery-note">Recibe {{campus?'tu constancia PDF de demostración':invoice?'PDF y XML de prueba':'tu comprobante PDF'}} en tu correo. No se descargan archivos en el kiosco.</p>
     <div v-if="open" class="kiosk-modal-backdrop" @keydown.esc.prevent="close" @keydown="trapFocus">
       <section class="kiosk-modal email-modal" role="dialog" aria-modal="true" aria-labelledby="email-title">
-        <div class="modal-head"><span class="modal-icon"><Mail :size="25"/></span><div><h2 id="email-title">ENVÍO POR CORREO</h2><p>{{invoice?'Factura PDF + XML de prueba':'Comprobante PDF de prueba'}}</p></div><button class="icon-close" :disabled="busy" @click="close" aria-label="Cerrar correo">✕</button></div>
+        <div class="modal-head"><span class="modal-icon"><Mail :size="25"/></span><div><h2 id="email-title">ENVÍO POR CORREO</h2><p>{{campus?'Constancia PDF de demostración':invoice?'Factura PDF + XML de prueba':'Comprobante PDF de prueba'}}</p></div><button class="icon-close" :disabled="busy" @click="close" aria-label="Cerrar correo">✕</button></div>
         <p v-if="error" class="flow-error" role="alert">{{error}}</p>
         <template v-if="stage==='edit'">
           <p>Escribe tu correo y confírmalo para evitar errores de entrega.</p>

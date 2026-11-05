@@ -15,12 +15,14 @@ load_dotenv(Path(__file__).parent / '.env')
 import parking
 import payments
 import mail_delivery
+import campus
 from catalog import CONCEPTS
 
 HOST = os.getenv('MOCK_HOST', '127.0.0.1')
 PORT = int(os.getenv('MOCK_PORT', '8787'))
 TOKENS = {}
 LOCK = threading.Lock()
+ADMIN_ATTEMPTS = {}
 TTL = 3600
 STUDENTS={
  '202210':{'id':'6019','matricula':'202210','nombre':'ALUMNO DEMOSTRACIÓN','nivel':'Preparatoria','grado':'Sexto','grupo':'A','ciclo':'2026/2027','email':'alumno.demo@ejemplo.invalid'},
@@ -72,8 +74,16 @@ class Handler(BaseHTTPRequestHandler):
 
     def require_session(self):
         session = self.auth()
-        if not session:
+        if not session or session.get('role')=='admin':
             self.respond(401, {'error': 'Tu sesión venció. Vuelve a ingresar.'})
+            return None
+        return session
+
+    def require_admin(self):
+        session=self.auth()
+        if not session or session.get('role')!='admin':
+            self.respond(403, {'error':'Se requiere acceso administrativo.'})
+            return None
         return session
 
     def guarded(self, action):
@@ -85,7 +95,7 @@ class Handler(BaseHTTPRequestHandler):
             self.respond(404, {'error': str(exc)})
         except ValueError as exc:
             self.respond(400, {'error': str(exc)})
-        except (BrokenPipeError, ConnectionResetError):
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
             pass
         except (subprocess.SubprocessError, OSError, RuntimeError) as exc:
             self.respond(503, {'error': 'No se pudo completar la impresión. Revisa la impresora y reintenta.', 'detail': str(exc)[:200]})
@@ -104,7 +114,13 @@ class Handler(BaseHTTPRequestHandler):
     def get_route(self):
         path = urllib.parse.urlparse(self.path).path
         if path == '/api/health':
-            return self.respond(200, {'status': 'ok', 'modo': 'DEMO', 'integracionReal': False})
+            return self.respond(200, {'status': 'ok', 'modo': 'DEMO', 'integracionReal': False, 'version':'2.0', 'campus':True})
+        if path == '/api/campus/public':
+            return self.respond(200, campus.public())
+        if path == '/api/admin/state':
+            if self.require_admin():
+                return self.respond(200, campus.admin_state())
+            return
         if path == '/api/services':
             return self.respond(200, mail_delivery.capabilities())
         if path == '/api/parking/printer':
@@ -112,6 +128,8 @@ class Handler(BaseHTTPRequestHandler):
         session = self.require_session()
         if not session:
             return
+        if path == '/api/campus/state':
+            return self.respond(200, campus.state(session['matricula'], CONCEPTS))
         if path == '/api/me':
             return self.respond(200, {'estudiante': STUDENTS[session['matricula']]})
         if path == '/api/payments/history':
@@ -125,11 +143,34 @@ class Handler(BaseHTTPRequestHandler):
             result = parking.print_payload(payments.receipt(document, invoice))
             return {'printed': True, 'print': result}
         except (OSError, RuntimeError, subprocess.SubprocessError, ValueError) as exc:
+            campus.incident('impresora','Falló la impresión de un comprobante. Puede reintentarse desde Mis comprobantes.')
             return {'printed': False, 'print_error': str(exc)[:300]}
 
     def post_route(self):
         path = urllib.parse.urlparse(self.path).path
         data = self.body()
+        if path == '/api/admin/login':
+            address=self.client_address[0]
+            with LOCK:
+                attempts=[t for t in ADMIN_ATTEMPTS.get(address,[]) if time.time()-t<60]
+                if len(attempts)>=5:
+                    return self.respond(429, {'error':'Demasiados intentos. Espera un minuto.'})
+                ADMIN_ATTEMPTS[address]=attempts+[time.time()]
+            if not campus.verify_admin(data.get('password')):
+                return self.respond(401, {'error':'Acceso no configurado o contraseña incorrecta.'})
+            token=secrets.token_urlsafe(32)
+            with LOCK:
+                TOKENS[token]={'role':'admin','exp':time.time()+1800}
+                ADMIN_ATTEMPTS.pop(address,None)
+            return self.respond(200, {'access_token':token,'expires_in':1800})
+        if path == '/api/admin/action':
+            if self.require_admin():
+                return self.respond(200, campus.admin_action(data, CONCEPTS))
+            return
+        if path == '/api/campus/event':
+            return self.respond(200, campus.event(data))
+        if path == '/api/campus/survey':
+            return self.respond(200, campus.event(data, True))
         if path == '/api/auth/login':
             matricula = str(data.get('matricula', '')).strip()
             pin = str(data.get('pin', '')).strip()
@@ -151,6 +192,7 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 ticket.update({'print': parking.print_ticket(ticket), 'printed': True})
             except (OSError, RuntimeError, subprocess.SubprocessError, ValueError) as exc:
+                campus.incident('impresora','Falló la impresión de un boleto de estacionamiento.')
                 ticket.update({'printed': False, 'print_error': str(exc)[:300]})
             return self.respond(200, {'ticket': ticket, 'demo': True})
         if path == '/api/parking/reprint':
@@ -187,6 +229,19 @@ class Handler(BaseHTTPRequestHandler):
         if not session:
             return
         matricula = session['matricula']
+        if path == '/api/campus/action':
+            return self.respond(200, campus.action(matricula, data, CONCEPTS))
+        if path == '/api/campus/print-turn':
+            payload=campus.turn_ticket(matricula,data.get('folio'))
+            try:
+                result=parking.print_payload(payload)
+                return self.respond(200, {'printed':True,'print':result})
+            except (OSError,RuntimeError,subprocess.SubprocessError) as exc:
+                campus.incident('impresora','Falló la impresión de un turno. El folio permanece registrado.')
+                return self.respond(503, {'error':'El turno está guardado, pero no salió la impresión. Revisa la impresora y reintenta.'})
+        if path == '/api/campus/email':
+            document=campus.document(matricula,data.get('code'),STUDENTS[matricula])
+            return self.respond(200,mail_delivery.send(document['folio'],'campus',data.get('email',''),data.get('request_id',''),document))
         if path == '/api/payments/quote':
             selected = payments.select_in_order(payments.pending(matricula, CONCEPTS), data.get('concept_ids'))
             return self.respond(200, {'conceptos': selected, 'total': payments.total(selected), 'moneda': 'MXN', 'modo': 'DEMO', 'cobroReal': False})

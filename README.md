@@ -4,6 +4,10 @@ Monorepositorio para Debian 13: **Tauri v2 + Vue 3 + Vite** y **API demo Python 
 
 ## Demo de pagos en la rama KioskoJsEMR
 
+**Nuevo: Servicios del campus.** Turnos, constancias, seguimiento de trámites, reinscripción, citas, horario y mapa demo, biblioteca, reposición de credencial, actividades, directorio, encuesta y opciones de accesibilidad. Incluye panel administrativo en `/admin` con gestión de estados, avisos, costos, horarios, cupos, incidencias y reportes. Consulta [cómo iniciar y probar todos los módulos](docs/CAMPUS-DEMO.md).
+
+Para habilitar administración, ejecuta `python api/setup_admin.py`, elige tu contraseña y reinicia la API. No existe contraseña administrativa predeterminada. Los servicios son demostraciones persistentes; la integración institucional y el proveedor de correo siguen pendientes.
+
 La pantalla separa conceptos pendientes (2/3) y selección (1/3). Los 16 conceptos demo se agregan por fecha de vencimiento y se devuelven desde el último agregado; también se puede cancelar toda la selección. **Continuar** abre un resumen antes de confirmar el pago simulado. El comprobante incluye un QR para abrir **Facturar** en el mismo kiosco.
 
 El portal incluye **Mis comprobantes**, ayuda, teclado de correo y cierre por inactividad (aviso a los 90 segundos; cierre a los 120). Los documentos se imprimen en la impresora del kiosco o se envían por correo: comprobante PDF y factura de prueba PDF/XML. No hay descargas ni impresión desde el navegador.
