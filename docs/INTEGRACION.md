@@ -8,6 +8,19 @@
 * `POST /api/payments/quote`: JSON `{concept_ids:[36,45]}` con Bearer -> `{conceptos,total,moneda,modo,cobroReal}`.
 * `POST /api/auth/logout`: revoca Bearer demo.
 
+### Flujo ampliado en KioskoJsEMR
+
+`GET /api/charges` devuelve solo pendientes de la base demo, ordenados por `fechaVencimiento` e `id`. Los `concept_ids` de cotización y simulación deben ser un prefijo exacto de esa lista; el servidor rechaza saltos, duplicados y cambios de orden.
+
+* `POST /api/payments/simulate` con Bearer y `{concept_ids, request_id}`: guarda un pago ficticio idempotente y devuelve `{payment, conceptos, reused, printed?, print_error?}`. `conceptos` es la nueva lista pendiente. `request_id` tiene entre 16 y 80 caracteres alfanuméricos, guion o guion bajo.
+* `POST /api/billing/lookup` con `{code}`: recupera `{payment, invoice}` mediante el folio aleatorio del QR, sin sesión de alumno.
+* `POST /api/billing/invoice` con `{code}`: genera o recupera una única factura de prueba y devuelve `{invoice, reused, printed?, print_error?}`.
+* `POST /api/billing/print` con `{code, kind: "payment" | "invoice"}`: reimprime un documento ya guardado.
+
+Las respuestas de pago/factura siguen siendo exitosas si el documento se guardó y solo falló la impresión: `printed:false` permite reimprimir sin repetir la operación. Repetir una operación guardada devuelve `reused:true, print_skipped:true` y no vuelve a imprimir automáticamente.
+
+Todos los documentos son ficticios y llevan avisos de demostración. El XML ilustra CFDI 4.0 sin timbrado, sello ni certificado; no es una integración de facturación fiscal. El QR es un identificador local, no una URL móvil. Ver [PAGOS-DEMO.md](PAGOS-DEMO.md).
+
 ## Correspondencia con las pantallas proporcionadas
 
 Entidad `concepto`: `id`, `nombre`, `grupo`, `ciclo`, `periodo`, `importe`, `descuento`, `restante`, `estado`, `fechaVencimiento`. El volcado PHP mostrado utiliza `payments`, `profile_students_id`, `KardexPayment`, `pending_amount`, `total_amount`, `discount_charge`, `period`, etc. La API propuesta es una proyección normalizada propia, **no** una réplica 1:1 verificada del backend universitario.

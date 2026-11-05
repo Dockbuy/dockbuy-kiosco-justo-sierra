@@ -2,6 +2,30 @@
 
 Monorepositorio para Debian 13: **Tauri v2 + Vue 3 + Vite** y **API mock Python 3** sin paquetes externos.
 
+## Demo de pagos en la rama KioskoJsEMR
+
+La pantalla separa conceptos pendientes (2/3) y selección (1/3). Se agregan por fecha de vencimiento y se devuelven desde el último agregado; también se puede cancelar toda la selección. **Continuar** simula el cobro y genera un comprobante con QR. Al escanearlo en el mismo kiosco se abre **Facturar**, que genera una factura y XML de prueba, sin timbrado ni validez fiscal.
+
+Los pagos demo persisten en SQLite. No se mueve dinero ni se conecta al SAT. Ver [flujo, impresión y pruebas](docs/PAGOS-DEMO.md).
+
+### Ejecutar la interfaz en Windows
+
+Desde la raíz del repositorio, iniciar la API y dejar la terminal abierta:
+
+```powershell
+python api/server.py
+```
+
+En otra terminal, desde la raíz:
+
+```powershell
+cd app
+npm ci
+npm run dev
+```
+
+Abrir http://127.0.0.1:1420. Matrícula `202210` o `202211`, PIN `1234`. Al actualizar el backend, reiniciar la terminal de Python. En Windows se puede imprimir o guardar PDF desde el navegador; la impresión ESC/POS del kiosco usa Debian.
+
 ## 1. Instalación en el kiosco
 
 ```bash
@@ -56,7 +80,7 @@ No se recibió contrato de API de alumnos ni evidencia sobre su autenticación. 
 
 No exponer secretos, tokens permanentes ni claves MIT en variables `VITE_`: terminan en el bundle del frontend. Validar TLS, certificado, rutas, esquema JSON, paginación, identificadores, roles y vigencia de las sesiones en las instalaciones.
 
-No activar cobros reales hasta disponer de `id_company`, `id_branch`, `user`, `pwd`, `Data 0`, clave AES, URLs QA/producción y callback de MIT. Webpay PLUS exige XML firmado/cifrado según su manual, validación de respuesta y confirmación de pago por servidor. El mock actual **sólo calcula una cotización** y nunca marca adeudos como pagados.
+No activar cobros reales hasta disponer del contrato y credenciales del proveedor, validación de respuestas y confirmación por servidor. El mock actual **registra pagos ficticios exclusivamente en la base demo**; no modifica adeudos de la universidad ni se comunica con MIT.
 
 ## 5. GitHub
 
@@ -77,7 +101,7 @@ Si `origin` ya existe, omite `git remote add origin`. Para autenticación de Git
 
 - Los alumnos, importes y conceptos son **ficticios**, inspirados en la estructura visual mostrada, no están extraídos del sistema real.
 - PIN demo común y tokens en RAM; **exclusivamente para pruebas locales**.
-- No hay impresora, terminal física bancaria, Webpay real ni captura de pagos.
+- Hay impresión ESC/POS de tickets y facturas de prueba; falta validar físicamente los nuevos formatos en la impresora. No hay terminal bancaria ni Webpay real.
 - Las imágenes de referencia proporcionadas por el usuario están integradas localmente en `app/public/images/`. No se descargan imágenes del sitio en ejecución.
 - Google Fonts Inter requiere red; se usa fallback si el kiosco está desconectado. Para producción offline, instalar Inter localmente si se dispone de licencia/distribución adecuada.
 - Deben revisarse autorización de uso del logotipo/fotografías y requisitos de privacidad antes del despliegue.

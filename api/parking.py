@@ -1,18 +1,27 @@
 """Estacionamiento DEMO: SQLite local + ESC/POS para CASHINO KP-347 vía CUPS.
 Nunca marca pagos como realizados. QR contiene identificador opaco aleatorio.
 """
-import os, sqlite3, secrets, datetime, subprocess, shutil, math, re
+import os, sqlite3, secrets, datetime, subprocess, shutil, math, re, sys, threading
+from contextlib import contextmanager
 from pathlib import Path
 DB=Path(os.environ.get('PARK_DB',str(Path(__file__).parent/'parking-demo.sqlite3')))
 RATE=20
 HOURS=8
 
+@contextmanager
 def connection():
     con=sqlite3.connect(DB,timeout=10)
     con.row_factory=sqlite3.Row
     con.execute('CREATE TABLE IF NOT EXISTS tickets (code TEXT PRIMARY KEY, issued_at TEXT NOT NULL, status TEXT NOT NULL DEFAULT \'OPEN\')')
     con.commit()
-    return con
+    try:
+        yield con
+        con.commit()
+    except Exception:
+        con.rollback()
+        raise
+    finally:
+        con.close()
 
 def create_ticket():
     code=secrets.token_hex(10).upper()  # 20 caracteres hexadecimales; sin prefijos ni guiones
@@ -80,6 +89,8 @@ def receipt(ticket):
             b'\n\n\n\n\n\n' + b'\x1d\x56\x01')
 
 def printer_name():
+    if os.environ.get('PARK_DEVICE', '').strip():
+        return os.environ['PARK_DEVICE'].strip()
     env=os.environ.get('PARK_PRINTER','').strip()
     if env:return env
     if not shutil.which('lpstat'):return None
@@ -92,25 +103,42 @@ def printer_name():
     match=next((n for n in names if any(t in n.lower() for t in ('cashino','kp347','kp-347'))),None)
     return match or (names[0] if len(names)==1 else None)
 
+PRINT_LOCK = threading.Lock()
+
 def print_ticket(ticket):
+    return print_payload(receipt(ticket))
+
+def print_payload(payload):
+    # Serializa los trabajos; evita mezclar tickets de solicitudes concurrentes.
+    with PRINT_LOCK:
+        return _send_payload(payload)
+
+def _send_payload(payload):
     # Si CUPS alimenta papel sin imprimir, usar el dispositivo USB directo
     # que haya sido probado físicamente en el equipo. Nunca usar sudo.
     device=os.environ.get('PARK_DEVICE','').strip()
     if device:
         if not re.fullmatch(r'/dev/usb/lp[0-9]+',device):
             raise RuntimeError('PARK_DEVICE debe ser /dev/usb/lpN (ej. /dev/usb/lp0).')
-        try:
-            with open(device,'wb',buffering=0) as output:
-                output.write(receipt(ticket))
-        except PermissionError:
-            raise RuntimeError('Permiso denegado para '+device+'. Agrega el usuario dockbuy al grupo lp y vuelve a iniciar sesión.')
-        except OSError as error:
-            raise RuntimeError('No se pudo escribir en '+device+': '+str(error))
+        result = subprocess.run([sys.executable, str(Path(__file__).resolve()), '--print-usb', device], input=payload, capture_output=True, timeout=12)
+        if result.returncode:
+            raise RuntimeError('No se pudo imprimir por USB. Revisa conexión y permisos del grupo lp. ' + result.stderr.decode('utf-8', 'replace')[-180:])
         return {'printer':device,'job':'enviado por USB directo'}
     printer=printer_name()
     if not printer:raise RuntimeError('Sin cola CUPS predeterminada. Configura PARK_PRINTER=nombre_cola y revisa lpstat -p -d.')
     if not shutil.which('lp'):raise RuntimeError('Falta el comando lp (sudo apt install cups-client).')
     cmd=['lp','-d',printer,'-o','raw','-']
-    result=subprocess.run(cmd,input=receipt(ticket),capture_output=True,timeout=12)
+    result=subprocess.run(cmd,input=payload,capture_output=True,timeout=12)
     if result.returncode:raise RuntimeError((result.stderr or b'Error CUPS').decode('utf-8','replace')[:300])
     return {'printer':printer,'job':result.stdout.decode('utf-8','replace').strip()}
+
+if __name__ == '__main__':
+    if len(sys.argv) != 3 or sys.argv[1] != '--print-usb' or not re.fullmatch(r'/dev/usb/lp[0-9]+', sys.argv[2]):
+        raise SystemExit('Uso interno: --print-usb /dev/usb/lpN')
+    remaining = memoryview(sys.stdin.buffer.read())
+    with open(sys.argv[2], 'wb', buffering=0) as output:
+        while remaining:
+            written = output.write(remaining)
+            if not written:
+                raise OSError('La impresora dejó de aceptar datos.')
+            remaining = remaining[written:]

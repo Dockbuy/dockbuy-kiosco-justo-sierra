@@ -7,6 +7,11 @@ target/
 __pycache__/
 .DS_Store
 
+# Pruebas y caché de instalación local
+.npm-cache/
+test-results/
+playwright-report/
+
 # Node.js
 node_modules/
 dist/

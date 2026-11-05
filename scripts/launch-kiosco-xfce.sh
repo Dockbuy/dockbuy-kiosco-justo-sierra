@@ -8,7 +8,10 @@ mkdir -p "$LOG_DIR"
 exec >> "$LOG_DIR/autoinicio.log" 2>&1
 printf '\n==== Inicio %s ====\n' "$(date -Is)"
 export PATH="$HOME_DIR/.cargo/bin:$HOME_DIR/.local/bin:/usr/local/bin:/usr/bin:/bin:${PATH:-}"
-export PARK_DEVICE="${PARK_DEVICE:-/dev/usb/lp0}"
+# Respeta CUPS cuando PARK_PRINTER está definido. USB solo si existe el dispositivo.
+if [[ -z "${PARK_DEVICE+x}" && -z "${PARK_PRINTER:-}" && -e /dev/usb/lp0 ]]; then
+  export PARK_DEVICE=/dev/usb/lp0
+fi
 if [[ -z "${DISPLAY:-}" && -z "${WAYLAND_DISPLAY:-}" ]]; then
   echo 'No hay sesión gráfica disponible; se cancela inicio.'
   exit 1
