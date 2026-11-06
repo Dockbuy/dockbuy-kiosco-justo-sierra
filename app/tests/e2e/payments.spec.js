@@ -2,7 +2,30 @@ import {test,expect} from '@playwright/test'
 import {PNG} from 'pngjs'
 import jsQR from 'jsqr'
 
-test.beforeEach(async({request})=>{await request.post('http://127.0.0.1:8878/__test/reset')})
+test.beforeEach(async({request})=>{await request.post('http://127.0.0.1:8878/__test/reset',{data:{}})})
+
+test('parking recovers a lost response with one folio and limits immediate reprints',async({page})=>{
+  const requests=[];let issued
+  await page.route('**/api/parking/issue',async route=>{
+    requests.push(route.request().postDataJSON().request_id)
+    const response=await route.fetch()
+    if(requests.length===1){issued=(await response.json()).ticket.code;await route.abort('failed')}
+    else await route.fulfill({response})
+  })
+  await page.goto('/')
+  await page.getByRole('button',{name:'ESTACIONAMIENTO',exact:true}).click()
+  await page.getByRole('button',{name:/GENERAR TICKET/}).click()
+  await expect(page.getByText('No se pudo conectar con la API. Comprueba que esté encendida.')).toBeVisible()
+  await page.getByRole('button',{name:/GENERAR TICKET/}).click()
+  await expect(page.getByRole('heading',{name:'TICKET GENERADO',exact:true})).toBeVisible()
+  expect(requests).toHaveLength(2)
+  expect(requests[1]).toBe(requests[0])
+  await expect(page.locator('.parking-code')).toHaveText(issued)
+  await page.getByRole('button',{name:'REIMPRIMIR TICKET',exact:true}).click()
+  await expect(page.getByText(/Límite de impresión/)).toBeVisible()
+  await page.getByRole('button',{name:'FINALIZAR Y SALIR',exact:true}).click()
+  await expect(page.getByRole('button',{name:'INGRESAR AL PORTAL'})).toBeVisible()
+})
 async function login(page){
   await page.goto('/')
   await page.getByRole('button',{name:'INGRESAR AL PORTAL'}).click()
@@ -24,6 +47,29 @@ async function paidReceipt(page){
   await confirmPayment(page)
   await expect(page.getByRole('heading',{name:'PAGO DEMO COMPLETADO'})).toBeVisible()
 }
+
+test('leaving the kiosk revokes the server session',async({page,request})=>{
+  const issued=page.waitForResponse(response=>response.url().endsWith('/api/auth/login')&&response.status()===200)
+  await login(page)
+  const token=(await (await issued).json()).access_token
+  const revoked=page.waitForResponse(response=>response.url().endsWith('/api/auth/logout'))
+  await page.getByRole('button',{name:'SALIR',exact:true}).click()
+  expect((await revoked).status()).toBe(200)
+  const response=await request.get('http://127.0.0.1:8878/api/charges',{headers:{Authorization:'Bearer '+token}})
+  expect(response.status()).toBe(401)
+})
+
+test('login cleanup revokes its issued token when loading charges fails',async({page,request})=>{
+  await page.route('**/api/charges',route=>route.fulfill({status:503,json:{error:'Consulta temporalmente no disponible'}}))
+  const issued=page.waitForResponse(response=>response.url().endsWith('/api/auth/login')&&response.status()===200)
+  const revoked=page.waitForResponse(response=>response.url().endsWith('/api/auth/logout'))
+  await page.goto('/')
+  await page.getByRole('button',{name:'INGRESAR AL PORTAL'}).click()
+  await page.getByRole('button',{name:'ENTRAR',exact:true}).click()
+  const token=(await (await issued).json()).access_token
+  expect((await revoked).status()).toBe(200)
+  expect((await request.get('http://127.0.0.1:8878/api/charges',{headers:{Authorization:'Bearer '+token}})).status()).toBe(401)
+})
 async function recipient(page){
   await page.getByRole('button',{name:'ENVIAR POR CORREO',exact:true}).click()
   await page.getByLabel('Tu correo',{exact:true}).fill('prueba@example.invalid')

@@ -19,6 +19,18 @@ test('HTTP errors retain status for session recovery',async()=>{
     await assert.rejects(request('/charges'),e=>e.status===401&&e.message==='Sesión vencida')
   }finally{globalThis.fetch=original}
 })
+
+test('body-less logout sends JSON and preserves the bearer token',async()=>{
+  const original=globalThis.fetch
+  try{
+    let called
+    globalThis.fetch=async(_url,options)=>{called=options;return new Response(JSON.stringify({ok:true}),{status:200})}
+    await request('/auth/logout',{method:'POST',token:'session-test'})
+    assert.equal(called.headers['Content-Type'],'application/json')
+    assert.equal(called.headers.Authorization,'Bearer session-test')
+    assert.equal(called.body,'{}')
+  }finally{globalThis.fetch=original}
+})
 test('caller cancellation remains distinguishable from timeout',async()=>{
   const original=globalThis.fetch
   try{

@@ -1,6 +1,6 @@
 import {test,expect} from '@playwright/test'
 const api='http://127.0.0.1:8878/api'
-test.beforeEach(async({request})=>{await request.post('http://127.0.0.1:8878/__test/reset')})
+test.beforeEach(async({request})=>{await request.post('http://127.0.0.1:8878/__test/reset',{data:{}})})
 async function enter(page){await page.goto('/');await page.getByRole('button',{name:'INGRESAR AL PORTAL',exact:true}).click();await page.getByRole('button',{name:'ENTRAR',exact:true}).click();await page.getByRole('button',{name:/EXPLORAR TODOS LOS SERVICIOS/}).click();await expect(page.getByRole('heading',{name:'¿Qué necesitas hoy?'})).toBeVisible()}
 async function service(page,title){await page.locator('.campus-service').filter({has:page.getByRole('heading',{name:title,exact:true})}).click()}
 async function confirm(page){await page.getByRole('button',{name:'CONFIRMAR SOLICITUD',exact:true}).click();await expect(page.getByRole('dialog')).toHaveCount(0)}
@@ -109,11 +109,16 @@ test('reenrollment checklist gates requests until operator validates and balance
  await page.screenshot({path:'test-results/campus-reenrollment.png',fullPage:true})
 })
 
-test('admin logout discards an in-flight response and campus survey shortcut navigates in place',async({page})=>{
+test('admin logout discards an in-flight response and campus survey shortcut navigates in place',async({page,request})=>{
  await enter(page);await service(page,'Biblioteca');await page.locator('.accessibility-bar').getByRole('button',{name:'Tu opinión',exact:true}).click();await expect(page.getByRole('heading',{name:'Tu opinión',exact:true})).toBeVisible()
+ const issued=page.waitForResponse(response=>response.url().endsWith('/api/admin/login')&&response.status()===200)
  await admin(page)
+ const token=(await (await issued).json()).access_token
  let release;const gate=new Promise(resolve=>release=resolve);let pending
  await page.route('**/api/admin/state',async route=>{pending=true;await gate;await route.fulfill({json:{demo:true,records:[],config:{},metrics:[],hours:[],surveys:{},incidents:[],deliveries:[],validations:[],loans:[]}}).catch(()=>{})})
  await page.getByRole('button',{name:'Actualizar',exact:true}).click();await expect.poll(()=>pending).toBeTruthy()
+ const revoked=page.waitForResponse(response=>response.url().endsWith('/api/auth/logout'))
  await page.getByRole('button',{name:'Cerrar sesión',exact:true}).click();release();await expect(page.getByRole('heading',{name:'Acceso del personal'})).toBeVisible();await expect(page.locator('.admin-content')).toHaveCount(0)
+ expect((await revoked).status()).toBe(200)
+ expect((await request.get(api+'/admin/state',{headers:{Authorization:'Bearer '+token}})).status()).toBe(403)
 })

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """API local de demostración. No procesa dinero ni emite CFDI fiscal."""
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler
 import json
 import os
 import secrets
@@ -17,6 +17,7 @@ import payments
 import mail_delivery
 import campus
 from catalog import CONCEPTS
+from http_guard import GuardedHTTPHandler, ThreadingHTTPServer, RequestError
 
 HOST = os.getenv('MOCK_HOST', '127.0.0.1')
 PORT = int(os.getenv('MOCK_PORT', '8787'))
@@ -29,33 +30,45 @@ STUDENTS={
  '202211':{'id':'6020','matricula':'202211','nombre':'ALUMNA PRUEBA','nivel':'Licenciatura','grado':'Tercero','grupo':'B','ciclo':'2026/2027','email':'alumna.demo@ejemplo.invalid'}
 }
 
-class Handler(BaseHTTPRequestHandler):
+class Handler(GuardedHTTPHandler, BaseHTTPRequestHandler):
     def respond(self, code, body):
         payload = json.dumps(body, ensure_ascii=False).encode()
         self.send_response(code)
         self.send_header('Content-Type', 'application/json; charset=utf-8')
         self.send_header('Cache-Control', 'no-store')
+        self.send_header('Connection', 'close')
+        self.send_header('X-Content-Type-Options', 'nosniff')
+        if body.get('retry_after'):
+            self.send_header('Retry-After', str(body['retry_after']))
         self.cors()
         self.send_header('Content-Length', str(len(payload)))
         self.end_headers()
         self.wfile.write(payload)
 
     def cors(self):
-        self.send_header('Access-Control-Allow-Origin', '*')
-        self.send_header('Access-Control-Allow-Headers', 'Authorization,Content-Type')
-        self.send_header('Access-Control-Allow-Methods', 'GET,POST,OPTIONS')
+        self.send_header('Vary', 'Origin')
+        origins = self.headers.get_all('Origin', [])
+        if len(origins) == 1 and origins[0] in self.server.allowed_origins:
+            self.send_header('Access-Control-Allow-Origin', origins[0])
+            self.send_header('Access-Control-Allow-Headers', 'Authorization,Content-Type')
+            self.send_header('Access-Control-Allow-Methods', 'GET,POST,OPTIONS')
 
     def do_OPTIONS(self):
+        method = self.headers.get('Access-Control-Request-Method', 'GET')
+        headers = {h.strip().lower() for h in self.headers.get('Access-Control-Request-Headers', '').split(',') if h.strip()}
+        if method not in ('GET', 'POST') or not headers <= {'authorization', 'content-type'}:
+            return self.respond(403, {'error': 'Preflight no permitido.'})
         self.send_response(204)
         self.cors()
         self.end_headers()
 
     def body(self):
         try:
-            size = int(self.headers.get('Content-Length', '0'))
-            if not 0 <= size <= 8192:
+            raw = self.rfile.read(self.body_length)
+            self.finish_reading()
+            if len(raw) != self.body_length:
                 raise ValueError()
-            data = json.loads(self.rfile.read(size) or b'{}')
+            data = json.loads(raw or b'{}')
             if not isinstance(data, dict):
                 raise ValueError()
             return data
@@ -89,6 +102,8 @@ class Handler(BaseHTTPRequestHandler):
     def guarded(self, action):
         try:
             action()
+        except (RequestError, parking.PrintLimitError) as exc:
+            self.respond(exc.status, {'error': str(exc), 'retry_after': exc.retry_after})
         except mail_delivery.DeliveryError as exc:
             self.respond(exc.status, {'error':str(exc)})
         except LookupError as exc:
@@ -97,6 +112,8 @@ class Handler(BaseHTTPRequestHandler):
             self.respond(400, {'error': str(exc)})
         except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
             pass
+        except TimeoutError:
+            self.respond(408, {'error': 'Se agotó el tiempo para recibir la solicitud.'})
         except (subprocess.SubprocessError, OSError, RuntimeError) as exc:
             self.respond(503, {'error': 'No se pudo completar la impresión. Revisa la impresora y reintenta.', 'detail': str(exc)[:200]})
         except sqlite3.Error:
@@ -140,8 +157,11 @@ class Handler(BaseHTTPRequestHandler):
 
     def print_document(self, document, invoice=False):
         try:
-            result = parking.print_payload(payments.receipt(document, invoice))
+            key = ('invoice:' + document['payment_code']) if invoice else ('payment:' + document['code'])
+            result = parking.print_payload(payments.receipt(document, invoice), key)
             return {'printed': True, 'print': result}
+        except parking.PrintLimitError as exc:
+            return {'printed': False, 'print_error': str(exc), 'retry_after': exc.retry_after, 'print_status': exc.status}
         except (OSError, RuntimeError, subprocess.SubprocessError, ValueError) as exc:
             campus.incident('impresora','Falló la impresión de un comprobante. Puede reintentarse desde Mis comprobantes.')
             return {'printed': False, 'print_error': str(exc)[:300]}
@@ -180,6 +200,8 @@ class Handler(BaseHTTPRequestHandler):
             with LOCK:
                 for stale in [t for t, s in TOKENS.items() if s['exp'] <= time.time()]:
                     TOKENS.pop(stale, None)
+                if len(TOKENS) >= 256:
+                    return self.respond(429, {'error': 'Demasiadas sesiones activas. Pide ayuda al encargado.', 'retry_after': 60})
                 TOKENS[token] = {'matricula': matricula, 'exp': time.time() + TTL}
             return self.respond(200, {'access_token': token, 'token_type': 'Bearer', 'expires_in': TTL, 'estudiante': STUDENTS[matricula], 'demo': True})
         if path == '/api/auth/logout':
@@ -188,13 +210,18 @@ class Handler(BaseHTTPRequestHandler):
                 TOKENS.pop(token, None)
             return self.respond(200, {'ok': True})
         if path == '/api/parking/issue':
-            ticket = parking.create_ticket()
+            ticket, reused = parking.issue_ticket(data.get('request_id'))
+            if reused:
+                return self.respond(200, {'ticket': ticket, 'demo': True, 'reused': True, 'print_skipped': True})
             try:
                 ticket.update({'print': parking.print_ticket(ticket), 'printed': True})
+            except parking.PrintLimitError as exc:
+                ticket.update({'printed': False, 'print_error': str(exc), 'retry_after': exc.retry_after})
             except (OSError, RuntimeError, subprocess.SubprocessError, ValueError) as exc:
                 campus.incident('impresora','Falló la impresión de un boleto de estacionamiento.')
                 ticket.update({'printed': False, 'print_error': str(exc)[:300]})
-            return self.respond(200, {'ticket': ticket, 'demo': True})
+            parking.save_issue_result(data['request_id'], ticket)
+            return self.respond(200, {'ticket': ticket, 'demo': True, 'reused': False})
         if path == '/api/parking/reprint':
             quote = parking.quote_ticket(data.get('code', ''))
             return self.respond(200, {'printed': True, 'print': parking.print_ticket(quote)})
@@ -234,8 +261,10 @@ class Handler(BaseHTTPRequestHandler):
         if path == '/api/campus/print-turn':
             payload=campus.turn_ticket(matricula,data.get('folio'))
             try:
-                result=parking.print_payload(payload)
+                result=parking.print_payload(payload, 'turn:' + str(data['folio']).strip())
                 return self.respond(200, {'printed':True,'print':result})
+            except parking.PrintLimitError:
+                raise
             except (OSError,RuntimeError,subprocess.SubprocessError) as exc:
                 campus.incident('impresora','Falló la impresión de un turno. El folio permanece registrado.')
                 return self.respond(503, {'error':'El turno está guardado, pero no salió la impresión. Revisa la impresora y reintenta.'})

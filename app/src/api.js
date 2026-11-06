@@ -6,6 +6,8 @@ export class ApiError extends Error {
 }
 
 export async function request(path, {method = 'GET', token, body, signal, timeout = 20000} = {}) {
+  // Incluso logout debe respetar el contrato JSON de todos los POST.
+  if (body === undefined && method.toUpperCase() === 'POST') body = {}
   const controller = new AbortController()
   const cancel = () => controller.abort()
   if (signal?.aborted) controller.abort()

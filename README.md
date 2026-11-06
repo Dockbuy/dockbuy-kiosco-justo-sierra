@@ -116,3 +116,7 @@ En Inicio de sesión, toca Matrícula o Contraseña/PIN: se abrirá un teclado n
 Encabezados, títulos y botones usan la familia Roboto Condensed (Google Fonts; para uso sin red es aconsejable instalar esta familia en el sistema Debian mediante el administrador de paquetes). Los textos normales mantienen Inter.
 
 Para actualizar, detén la aplicación, descarga los cambios de `KioskoJsEMR` y actualiza las dependencias antes de iniciar de nuevo. Los archivos `.env` y las bases SQLite locales no forman parte del repositorio.
+
+## Límites de impresión y protección local
+
+La API limita reimpresiones, conserva los folios al reintentar y rechaza conexiones u orígenes web no permitidos. Consulta [límites y configuración](docs/LIMITES-API.md). Después de actualizar, reinicia API y frontend juntos.

@@ -27,7 +27,7 @@ class ApiTests(unittest.TestCase):
         parking.DB = pathlib.Path(self.temp.name) / 'parking.sqlite3'
         payments.DB = pathlib.Path(self.temp.name) / 'payments.sqlite3'
         server.TOKENS.clear()
-        self.print_mock = patch.object(parking, 'print_payload', return_value={'printer':'TEST', 'job':'mock'})
+        self.print_mock = patch.object(parking, '_send_payload', return_value={'printer':'TEST', 'job':'mock'})
         self.printer = self.print_mock.start()
         self.http = server.ThreadingHTTPServer(('127.0.0.1', 0), server.Handler)
         self.thread = threading.Thread(target=self.http.serve_forever, daemon=True)
@@ -135,7 +135,9 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(status,200); self.assertFalse(result['printed'])
         self.assertIsNotNone(payments.lookup(code)['invoice'])
         self.printer.side_effect = None
-        self.assertTrue(self.req('/api/billing/print', {'code':code,'kind':'invoice'})[1]['printed'])
+        self.assertFalse(self.req('/api/billing/print', {'code':code,'kind':'invoice'})[1]['printed'])
+        with patch.object(parking.time, 'time', return_value=server.time.time()+6):
+            self.assertTrue(self.req('/api/billing/print', {'code':code,'kind':'invoice'})[1]['printed'])
 
     def test_receipt_encodes_the_same_qr_payload(self):
         payment = self.pay()[1]['payment']

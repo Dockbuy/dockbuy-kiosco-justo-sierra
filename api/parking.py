@@ -1,7 +1,7 @@
 """Estacionamiento DEMO: SQLite local + ESC/POS para CASHINO KP-347 vía CUPS.
 Nunca marca pagos como realizados. QR contiene identificador opaco aleatorio.
 """
-import os, sqlite3, secrets, datetime, subprocess, shutil, math, re, sys, threading
+import os, sqlite3, secrets, datetime, subprocess, shutil, math, re, sys, threading, time, json
 from contextlib import contextmanager
 from pathlib import Path
 DB=Path(os.environ.get('PARK_DB',str(Path(__file__).parent/'parking-demo.sqlite3')))
@@ -13,6 +13,10 @@ def connection():
     con=sqlite3.connect(DB,timeout=10)
     con.row_factory=sqlite3.Row
     con.execute('CREATE TABLE IF NOT EXISTS tickets (code TEXT PRIMARY KEY, issued_at TEXT NOT NULL, status TEXT NOT NULL DEFAULT \'OPEN\')')
+    con.execute('CREATE TABLE IF NOT EXISTS ticket_requests (request_id TEXT PRIMARY KEY, code TEXT NOT NULL, created_at REAL NOT NULL, result TEXT)')
+    con.execute('CREATE INDEX IF NOT EXISTS ticket_requests_time ON ticket_requests(created_at)')
+    con.execute('CREATE TABLE IF NOT EXISTS print_attempts (document_key TEXT NOT NULL, attempted_at REAL NOT NULL)')
+    con.execute('CREATE INDEX IF NOT EXISTS print_attempts_time ON print_attempts(attempted_at)')
     con.commit()
     try:
         yield con
@@ -28,6 +32,40 @@ def create_ticket():
     dt=datetime.datetime.now(datetime.timezone.utc).isoformat()
     with connection() as con: con.execute('INSERT INTO tickets(code,issued_at) VALUES (?,?)',(code,dt))
     return {'code':code,'issued_at':dt,'status':'OPEN'}
+
+
+class PrintLimitError(RuntimeError):
+    def __init__(self, message, retry_after, status=429):
+        super().__init__(message)
+        self.status = status
+        self.retry_after = max(1, math.ceil(retry_after))
+
+
+def issue_ticket(request_id):
+    if not isinstance(request_id, str) or not re.fullmatch(r'[A-Za-z0-9_-]{16,80}', request_id):
+        raise ValueError('Se requiere un identificador de operación de 16 a 80 caracteres.')
+    with connection() as con:
+        con.execute('BEGIN IMMEDIATE')
+        previous = con.execute('SELECT * FROM ticket_requests WHERE request_id=?', (request_id,)).fetchone()
+        if previous:
+            ticket = dict(con.execute('SELECT * FROM tickets WHERE code=?', (previous['code'],)).fetchone())
+            ticket.update(json.loads(previous['result']) if previous['result'] else {
+                'printed': False, 'print_error': 'Folio recuperado. Verifica el papel antes de solicitar una reimpresión.'})
+            return ticket, True
+        now = time.time()
+        recent = con.execute('SELECT created_at FROM ticket_requests WHERE created_at>? ORDER BY created_at', (now - 60,)).fetchall()
+        if len(recent) >= 10:
+            raise PrintLimitError('Límite de boletos alcanzado. Espera un minuto o pide ayuda.', recent[0][0] + 60 - now)
+        ticket = {'code': secrets.token_hex(10).upper(), 'issued_at': datetime.datetime.now(datetime.timezone.utc).isoformat(), 'status': 'OPEN'}
+        con.execute('INSERT INTO tickets(code,issued_at) VALUES (?,?)', (ticket['code'], ticket['issued_at']))
+        con.execute('INSERT INTO ticket_requests(request_id,code,created_at) VALUES (?,?,?)', (request_id,ticket['code'],now))
+        return ticket, False
+
+
+def save_issue_result(request_id, ticket):
+    result = {key: ticket[key] for key in ('printed', 'print', 'print_error', 'retry_after') if key in ticket}
+    with connection() as con:
+        con.execute('UPDATE ticket_requests SET result=? WHERE request_id=?', (json.dumps(result), request_id))
 
 def quote_ticket(code):
     code=str(code).strip().upper()
@@ -104,14 +142,49 @@ def printer_name():
     return match or (names[0] if len(names)==1 else None)
 
 PRINT_LOCK = threading.Lock()
+# Un trabajo activo y uno en espera como máximo; ninguna cola ilimitada de hilos.
+PRINT_SLOTS = threading.BoundedSemaphore(2)
+PRINT_BUDGETS = ((60, 20), (3600, 200), (86400, 500))
+
+
+def reserve_print(document_key):
+    now = time.time()
+    with connection() as con:
+        con.execute('BEGIN IMMEDIATE')
+        con.execute('DELETE FROM print_attempts WHERE attempted_at<=?', (now - 86400,))
+        rows = con.execute('SELECT document_key,attempted_at FROM print_attempts ORDER BY attempted_at').fetchall()
+        waits = []
+        for window, limit in PRINT_BUDGETS:
+            recent = [row['attempted_at'] for row in rows if row['attempted_at'] > now - window]
+            if len(recent) >= limit:
+                waits.append(recent[-limit] + window - now)
+        same = [row['attempted_at'] for row in rows if row['document_key'] == document_key and row['attempted_at'] > now - 600]
+        if same:
+            waits.append(same[-1] + 5 - now)
+        if len(same) >= 3:
+            waits.append(same[-3] + 600 - now)
+        wait = max(waits, default=0)
+        if wait > 0:
+            raise PrintLimitError(f'Límite de impresión. Espera {math.ceil(wait)} segundos o pide ayuda.', wait)
+        # Registrar ANTES de enviar: un timeout no demuestra que no salió papel.
+        con.execute('INSERT INTO print_attempts VALUES (?,?)', (document_key, now))
 
 def print_ticket(ticket):
-    return print_payload(receipt(ticket))
+    return print_payload(receipt(ticket), 'parking:' + ticket['code'])
 
-def print_payload(payload):
-    # Serializa los trabajos; evita mezclar tickets de solicitudes concurrentes.
-    with PRINT_LOCK:
-        return _send_payload(payload)
+def print_payload(payload, document_key):
+    if not PRINT_SLOTS.acquire(blocking=False):
+        raise PrintLimitError('Impresora ocupada. Espera unos segundos y reintenta.', 5, 503)
+    try:
+        if not PRINT_LOCK.acquire(timeout=2):
+            raise PrintLimitError('Impresora ocupada. Espera unos segundos y reintenta.', 5, 503)
+        try:
+            reserve_print(document_key)
+            return _send_payload(payload)
+        finally:
+            PRINT_LOCK.release()
+    finally:
+        PRINT_SLOTS.release()
 
 def _send_payload(payload):
     # Si CUPS alimenta papel sin imprimir, usar el dispositivo USB directo

@@ -55,7 +55,7 @@ test('multitouch is cancelled, single touch and large-text accessibility continu
 })
 
 test('locked kiosk preserves physical text entry, editing and QR scanning',async({page,request})=>{
-  await request.post('http://127.0.0.1:8878/__test/reset')
+  await request.post('http://127.0.0.1:8878/__test/reset',{data:{}})
   const auth=await (await request.post('http://127.0.0.1:8878/api/auth/login',{data:{matricula:'202210',pin:'1234'}})).json()
   const payment=await (await request.post('http://127.0.0.1:8878/api/payments/simulate',{headers:{Authorization:'Bearer '+auth.access_token},data:{concept_ids:[101],request_id:crypto.randomUUID()}})).json()
   await desktop(page)
@@ -78,7 +78,7 @@ test('development browser and operator page do not inherit kiosk gesture restric
 })
 
 test('locked kiosk completes payment and email without browser print or download',async({page,request})=>{
-  await request.post('http://127.0.0.1:8878/__test/reset')
+  await request.post('http://127.0.0.1:8878/__test/reset',{data:{}})
   await desktop(page)
   await page.getByRole('button',{name:'INGRESAR AL PORTAL',exact:true}).click()
   await page.getByRole('button',{name:'ENTRAR',exact:true}).click()
