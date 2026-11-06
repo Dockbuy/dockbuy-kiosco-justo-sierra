@@ -23,7 +23,7 @@ async function reprint() {
     <p v-if="result?.printed" class="status-ok" role="status">Documento enviado a la impresora. Verifica que salió el papel.</p>
     <p v-else-if="result?.printed === false" class="notice" role="status">Tu documento quedó guardado. {{result.print_error || 'Verifica la impresora antes de reintentar; también puedes enviarlo por correo cuando esté disponible o pedir ayuda.'}}</p>
     <p v-if="error" class="flow-error" role="alert">{{error}}</p>
-    <button class="btn-primary" @click="reprint" :disabled="busy"><Printer :size="18"/> {{busy?'ENVIANDO…':'REIMPRIMIR EN KIOSCO'}}</button>
+    <button data-trace-action="document.reprint" class="btn-primary" @click="reprint" :disabled="busy"><Printer :size="18"/> {{busy?'ENVIANDO…':'REIMPRIMIR EN KIOSCO'}}</button>
     <EmailDelivery :key="document.qr_payload + (invoice?'-invoice':'')" :code="document.qr_payload" :invoice="invoice"/>
   </div>
 </template>

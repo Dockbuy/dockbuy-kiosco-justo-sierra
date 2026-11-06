@@ -120,3 +120,9 @@ Para actualizar, detén la aplicación, descarga los cambios de `KioskoJsEMR` y 
 ## Límites de impresión y protección local
 
 La API limita reimpresiones, conserva los folios al reintentar y rechaza conexiones u orígenes web no permitidos. Consulta [límites y configuración](docs/LIMITES-API.md). Después de actualizar, reinicia API y frontend juntos.
+
+## Trazabilidad de botones y navegación
+
+Después del login se registra en memoria el recorrido por sesión: botones, pantallas, pasos, toques y resultados. Para inspeccionarlo, inicia la API y ejecuta `npm run dev:trace`; abre el botón **TRAZABILIDAD · DESARROLLO**. No guarda estos eventos detallados en una base ni los envía a una API. El contrato y el adaptador quedan listos para la integración posterior. Consulta [uso, datos excluidos y contrato](docs/TRAZABILIDAD.md).
+
+La aplicación ya utiliza **SQLite local** para sus operaciones demo y métricas generales anteriores. No hay conexión con la base institucional. El visor detallado es temporal: recargar borra su memoria y no aparece en la compilación de producción.

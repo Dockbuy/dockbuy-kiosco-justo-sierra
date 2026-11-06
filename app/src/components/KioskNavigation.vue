@@ -16,11 +16,11 @@ const services=computed(()=>props.authenticated?[
 <template>
   <header class="kiosk-navigation no-print">
     <div class="navigation-main">
-      <button class="navigation-brand" aria-label="Justo Sierra — ir al inicio" :disabled="locked" @click="emit('home')"><img src="/images/logo.jpg" alt=""><span><b>JUSTO SIERRA</b><small>KIOSCO DE AUTOSERVICIO</small></span></button>
+      <button data-trace-action="nav.home" class="navigation-brand" aria-label="Justo Sierra — ir al inicio" :disabled="locked" @click="emit('home')"><img src="/images/logo.jpg" alt=""><span><b>JUSTO SIERRA</b><small>KIOSCO DE AUTOSERVICIO</small></span></button>
       <div class="navigation-session"><b>{{authenticated?student?.nombre:'Bienvenido'}}</b><small>{{authenticated?'Matrícula '+student?.matricula:'Elige el servicio que necesitas'}}</small></div>
       <span class="navigation-connection" :class="{offline:!online}"><Wifi v-if="online" :size="16"/><WifiOff v-else :size="16"/> {{online?'DEMO CONECTADA':'API DESCONECTADA'}}</span>
-      <div class="navigation-actions"><button :disabled="view==='dashboard'||locked" @click="emit('back')"><ArrowLeft :size="18"/> REGRESAR</button><button @click="emit('accessibility')" aria-label="Opciones de accesibilidad">Aa</button><button @click="emit('help')" aria-label="Abrir ayuda"><HelpCircle :size="20"/></button><button class="navigation-exit" @click="emit('exit')"><LogOut :size="18"/> SALIR</button></div>
+      <div class="navigation-actions"><button data-trace-action="nav.back" :disabled="view==='dashboard'||locked" @click="emit('back')"><ArrowLeft :size="18"/> REGRESAR</button><button data-trace-action="accessibility.open" @click="emit('accessibility')" aria-label="Opciones de accesibilidad">Aa</button><button data-trace-action="help.open" @click="emit('help')" aria-label="Abrir ayuda"><HelpCircle :size="20"/></button><button data-trace-action="session.exit" class="navigation-exit" @click="emit('exit')"><LogOut :size="18"/> SALIR</button></div>
     </div>
-    <nav class="service-navigation" aria-label="Servicios del kiosco"><button v-for="item in services" :key="item.id" :aria-current="view===item.id?'page':undefined" :disabled="locked" @click="emit('navigate',item.id)"><component :is="item.icon" :size="19"/><span>{{item.label}}</span><b v-if="item.id==='charges'&&draftCount" class="navigation-count">{{draftCount}}</b></button></nav>
+    <nav class="service-navigation" aria-label="Servicios del kiosco"><button :data-trace-action="'nav.'+item.id" v-for="item in services" :key="item.id" :aria-current="view===item.id?'page':undefined" :disabled="locked" @click="emit('navigate',item.id)"><component :is="item.icon" :size="19"/><span>{{item.label}}</span><b v-if="item.id==='charges'&&draftCount" class="navigation-count">{{draftCount}}</b></button></nav>
   </header>
 </template>

@@ -1,3 +1,4 @@
+import {beginTraceRequest,traceResponseOutcome} from './interaction-trace.js'
 // El binario Tauri no tiene el proxy de desarrollo de Vite.
 const base = (import.meta.env.VITE_API_URL || (import.meta.env.DEV ? '/api' : 'http://127.0.0.1:8787/api')).replace(/\/$/, '')
 
@@ -13,6 +14,7 @@ export async function request(path, {method = 'GET', token, body, signal, timeou
   if (signal?.aborted) controller.abort()
   else signal?.addEventListener('abort', cancel, {once: true})
   let timedOut = false
+  const finishTrace=beginTraceRequest(path,body)
   const timer = setTimeout(() => { timedOut = true; controller.abort() }, timeout)
   try {
     const response = await fetch(`${base}${path}`, {
@@ -25,8 +27,10 @@ export async function request(path, {method = 'GET', token, body, signal, timeou
     if (!data || typeof data !== 'object' || Array.isArray(data)) throw new ApiError('Formato de respuesta inválido.', response.status)
     if (!response.ok) throw new ApiError(data.error || `Error HTTP ${response.status}`, response.status)
     if (data.error) throw new ApiError(data.error, response.status)
+    finishTrace(traceResponseOutcome(data),response.status)
     return data
   } catch (error) {
+    finishTrace(signal?.aborted?'cancelled':timedOut?'timeout':error.status?'error':'network',error.status||0)
     if (signal?.aborted) throw new DOMException('Solicitud cancelada', 'AbortError')
     if (timedOut) throw new ApiError('La operación tardó demasiado. Reintenta; se conservará el mismo folio de operación.')
     if (error instanceof ApiError || error.name === 'AbortError') throw error

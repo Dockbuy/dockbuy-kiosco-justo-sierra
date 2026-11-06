@@ -2,7 +2,7 @@ import {test} from 'node:test'
 import assert from 'node:assert/strict'
 import {readFile} from 'node:fs/promises'
 const source=await readFile(new URL('../src/api.js',import.meta.url),'utf8')
-const {request}=await import('data:text/javascript;base64,'+Buffer.from(source.replaceAll('import.meta.env','({DEV:false})')).toString('base64'))
+const {request}=await import('data:text/javascript;base64,'+Buffer.from(source.replaceAll('import.meta.env','({DEV:false})').replace("'./interaction-trace.js'",JSON.stringify(new URL('../src/interaction-trace.js',import.meta.url).href))).toString('base64'))
 test('production API uses localhost and non-JSON is rejected',async()=>{
   const original=globalThis.fetch
   try{

@@ -4,6 +4,7 @@
   "scripts": {
     "setup": "npm --prefix app ci",
     "dev": "npm --prefix app run dev",
+    "dev:trace": "npm --prefix app run dev -- --mode trace",
     "build": "npm --prefix app run build",
     "test": "npm --prefix app test",
     "test:e2e": "npm --prefix app run test:e2e",
