@@ -1,0 +1,11 @@
+/* Permite scroll táctil y evita pinch/doble toque para escalar la página. */
+html[data-kiosk-lock="true"],html[data-kiosk-lock="true"] body {
+  touch-action:pan-x pan-y;
+  overscroll-behavior:none;
+  -webkit-text-size-adjust:100%;
+  text-size-adjust:100%;
+}
+html[data-kiosk-lock="true"] img,html[data-kiosk-lock="true"] a {
+  -webkit-user-drag:none;
+  -webkit-touch-callout:none;
+}

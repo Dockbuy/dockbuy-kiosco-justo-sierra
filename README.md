@@ -6,6 +6,8 @@ Monorepositorio para Debian 13: **Tauri v2 + Vue 3 + Vite** y **API demo Python 
 
 **Nuevo: Servicios del campus.** Turnos, constancias, seguimiento de trámites, reinscripción, citas, horario y mapa demo, biblioteca, reposición de credencial, actividades, directorio, encuesta y opciones de accesibilidad. Incluye panel administrativo en `/admin` con gestión de estados, avisos, costos, horarios, cupos, incidencias y reportes. Consulta [cómo iniciar y probar todos los módulos](docs/CAMPUS-DEMO.md).
 
+**Modo kiosco:** la aplicación Tauri desactiva el inspector, bloquea zoom y menús del navegador, y conserva scroll, teclado, QR y Texto grande. Consulta [actualización, mantenimiento y límites del bloqueo](docs/MODO-KIOSCO.md). Las configuraciones del escritorio Linux se gestionan por separado.
+
 Para habilitar administración, ejecuta `python api/setup_admin.py`, elige tu contraseña y reinicia la API. No existe contraseña administrativa predeterminada. Los servicios son demostraciones persistentes; la integración institucional y el proveedor de correo siguen pendientes.
 
 La pantalla separa conceptos pendientes (2/3) y selección (1/3). Los 16 conceptos demo se agregan por fecha de vencimiento y se devuelven desde el último agregado; también se puede cancelar toda la selección. **Continuar** abre un resumen antes de confirmar el pago simulado. El comprobante incluye un QR para abrir **Facturar** en el mismo kiosco.
