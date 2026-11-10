@@ -15,3 +15,12 @@ test('only next concept can be added; only last can be returned',()=>{
   assert.deepEqual(removeLast(second,36),[45])
   assert.deepEqual(addNext(charges,second,36),[45,36])
 })
+
+test('SIPAA scoped IDs keep authoritative tie order and ordered undo',()=>{
+  const data=[{id:'sipaa:129:contract:9:10',fechaVencimiento:'2026-12-31',orden:1},
+    {id:'sipaa:129:contract:9:2',fechaVencimiento:'2026-12-31',orden:0}]
+  const ordered=orderedCharges(data)
+  assert.equal(ordered[0].id,'sipaa:129:contract:9:2')
+  assert.deepEqual(addNext(data,[],ordered[1].id),[])
+  assert.deepEqual(removeLast(ordered.map(c=>c.id),ordered[0].id),ordered.map(c=>c.id))
+})

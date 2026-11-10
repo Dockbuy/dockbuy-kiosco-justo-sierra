@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""API local de demostración. No procesa dinero ni emite CFDI fiscal."""
+"""API local: consulta SIPAA o demostración aislada. No procesa dinero ni emite CFDI fiscal."""
 from http.server import BaseHTTPRequestHandler
 import json
 import os
@@ -16,6 +16,7 @@ import parking
 import payments
 import mail_delivery
 import campus
+import sipaa
 from catalog import CONCEPTS
 from http_guard import GuardedHTTPHandler, ThreadingHTTPServer, RequestError
 
@@ -25,6 +26,10 @@ TOKENS = {}
 LOCK = threading.Lock()
 ADMIN_ATTEMPTS = {}
 TTL = 3600
+DATA_SOURCE = os.getenv('KIOSCO_DATA_SOURCE', 'sipaa').lower()
+if DATA_SOURCE not in ('demo', 'sipaa'):
+    raise RuntimeError('KIOSCO_DATA_SOURCE debe ser demo o sipaa.')
+SIPAA = sipaa.Gateway()
 STUDENTS={
  '202210':{'id':'6019','matricula':'202210','nombre':'ALUMNO DEMOSTRACIÓN','nivel':'Preparatoria','grado':'Sexto','grupo':'A','ciclo':'2026/2027','email':'alumno.demo@ejemplo.invalid'},
  '202211':{'id':'6020','matricula':'202211','nombre':'ALUMNA PRUEBA','nivel':'Licenciatura','grado':'Tercero','grupo':'B','ciclo':'2026/2027','email':'alumna.demo@ejemplo.invalid'}
@@ -102,6 +107,11 @@ class Handler(GuardedHTTPHandler, BaseHTTPRequestHandler):
     def guarded(self, action):
         try:
             action()
+        except sipaa.IntegrationError as exc:
+            if exc.code == 'sipaa_expired':
+                with LOCK:
+                    TOKENS.pop(self.headers.get('Authorization', '')[7:], None)
+            self.respond(exc.status, {'error': str(exc), 'code': exc.code})
         except (RequestError, parking.PrintLimitError) as exc:
             self.respond(exc.status, {'error': str(exc), 'retry_after': exc.retry_after})
         except mail_delivery.DeliveryError as exc:
@@ -131,7 +141,19 @@ class Handler(GuardedHTTPHandler, BaseHTTPRequestHandler):
     def get_route(self):
         path = urllib.parse.urlparse(self.path).path
         if path == '/api/health':
-            return self.respond(200, {'status': 'ok', 'modo': 'DEMO', 'integracionReal': False, 'version':'2.0', 'campus':True})
+            real = DATA_SOURCE == 'sipaa'
+            return self.respond(200, {'status': 'ok', 'modo': 'SIPAA' if real else 'DEMO',
+                'integracionReal': real, 'consultaConfigurada': SIPAA.ready() if real else True,
+                'cobroReal': False, 'version':'2.1', 'campus':not real})
+        if DATA_SOURCE == 'sipaa':
+            if path not in ('/api/me', '/api/charges'):
+                return self.respond(409, {'error': 'Este servicio de demostración no está habilitado en modo SIPAA.'})
+            session = self.require_session()
+            if not session:
+                return
+            if path == '/api/me':
+                return self.respond(200, {'estudiante': session['estudiante'], 'demo': False})
+            return self.respond(200, SIPAA.consult(session['matricula'], session['upstream_token']))
         if path == '/api/campus/public':
             return self.respond(200, campus.public())
         if path == '/api/admin/state':
@@ -169,6 +191,8 @@ class Handler(GuardedHTTPHandler, BaseHTTPRequestHandler):
     def post_route(self):
         path = urllib.parse.urlparse(self.path).path
         data = self.body()
+        if DATA_SOURCE == 'sipaa' and path not in ('/api/auth/login', '/api/auth/logout', '/api/payments/quote'):
+            return self.respond(409, {'error': 'Servicio no integrado con SIPAA. No se registró ningún pago ni documento.'})
         if path == '/api/admin/login':
             address=self.client_address[0]
             with LOCK:
@@ -194,16 +218,29 @@ class Handler(GuardedHTTPHandler, BaseHTTPRequestHandler):
         if path == '/api/auth/login':
             matricula = str(data.get('matricula', '')).strip()
             pin = str(data.get('pin', '')).strip()
-            if matricula not in STUDENTS or pin != '1234':
+            real = DATA_SOURCE == 'sipaa'
+            if real:
+                matricula = sipaa.tuition(data.get('matricula'))
+                access = SIPAA.authenticate(matricula, data.get('password'))
+                snapshot = SIPAA.consult(matricula, access.token)
+                student = {'matricula': matricula, 'nombre': access.name or 'Consulta de adeudos'}
+            elif matricula not in STUDENTS or pin != '1234':
                 return self.respond(401, {'error': 'Matrícula o PIN demo incorrectos'})
+            else:
+                student = STUDENTS[matricula]
+            ttl = min(access.expires_in, int(access.expires_at - time.time())) if real else TTL
+            if ttl <= 0:
+                raise sipaa.IntegrationError('Tu sesión en SIPAA venció. Vuelve a ingresar.', 401, 'sipaa_expired')
             token = secrets.token_urlsafe(32)
             with LOCK:
                 for stale in [t for t, s in TOKENS.items() if s['exp'] <= time.time()]:
                     TOKENS.pop(stale, None)
                 if len(TOKENS) >= 256:
                     return self.respond(429, {'error': 'Demasiadas sesiones activas. Pide ayuda al encargado.', 'retry_after': 60})
-                TOKENS[token] = {'matricula': matricula, 'exp': time.time() + TTL}
-            return self.respond(200, {'access_token': token, 'token_type': 'Bearer', 'expires_in': TTL, 'estudiante': STUDENTS[matricula], 'demo': True})
+                TOKENS[token] = {'matricula': matricula, 'estudiante': student, 'exp': time.time() + ttl,
+                    **({'upstream_token': access.token} if real else {})}
+            return self.respond(200, {'access_token': token, 'token_type': 'Bearer', 'expires_in': ttl,
+                'estudiante': student, 'demo': not real, **({'consulta': snapshot} if real else {})})
         if path == '/api/auth/logout':
             token = self.headers.get('Authorization', '')[7:]
             with LOCK:
@@ -256,6 +293,8 @@ class Handler(GuardedHTTPHandler, BaseHTTPRequestHandler):
         if not session:
             return
         matricula = session['matricula']
+        if DATA_SOURCE == 'sipaa' and path == '/api/payments/quote':
+            return self.respond(200, sipaa.quote(SIPAA, matricula, session['upstream_token'], data.get('concept_ids')))
         if path == '/api/campus/action':
             return self.respond(200, campus.action(matricula, data, CONCEPTS))
         if path == '/api/campus/print-turn':
@@ -285,5 +324,5 @@ class Handler(GuardedHTTPHandler, BaseHTTPRequestHandler):
 
 
 if __name__ == '__main__':
-    print(f'API DEMO http://{HOST}:{PORT}/api/health | matrículas 202210 / 202211; PIN 1234')
+    print(f'API {DATA_SOURCE.upper()} http://{HOST}:{PORT}/api/health | sin cobro real')
     ThreadingHTTPServer((HOST, PORT), Handler).serve_forever()

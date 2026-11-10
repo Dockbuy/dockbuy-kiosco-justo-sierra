@@ -20,6 +20,7 @@ import server
 
 class ApiTests(unittest.TestCase):
     def setUp(self):
+        self.mode_mock = patch.object(server, 'DATA_SOURCE', 'demo'); self.mode_mock.start()
         # Estas pruebas de contrato usan el catálogo original de cuatro conceptos.
         self.catalog_mock = patch.object(server, 'CONCEPTS', [c for c in server.CONCEPTS if c['id'] in (36,45,55,56)])
         self.catalog_mock.start()
@@ -35,6 +36,7 @@ class ApiTests(unittest.TestCase):
         self.token = self.login()
 
     def tearDown(self):
+        self.mode_mock.stop()
         self.http.shutdown(); self.http.server_close(); self.thread.join()
         self.print_mock.stop(); self.catalog_mock.stop(); self.temp.cleanup()
 

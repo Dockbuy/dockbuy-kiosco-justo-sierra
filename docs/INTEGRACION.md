@@ -1,4 +1,6 @@
-# Contrato normalizado de la API (provisional)
+# Contrato normalizado de la API
+
+**Modo predeterminado: SIPAA.** La integración real de login y consulta de adeudos se documenta en [SIPAA.md](SIPAA.md). El login usa `{matricula,password}`; el backend envía `username`, `password` y `system_code: "AP"` y conserva `data.token` en memoria por sesión. Los endpoints y ejemplos demo de abajo requieren `KIOSCO_DATA_SOURCE=demo`.
 
 ## Frontend -> API interna
 
@@ -25,9 +27,9 @@ Todos los documentos son ficticios y llevan avisos de demostración. El XML ilus
 
 Entidad `concepto`: `id`, `nombre`, `grupo`, `ciclo`, `periodo`, `importe`, `descuento`, `restante`, `estado`, `fechaVencimiento`. El volcado PHP mostrado utiliza `payments`, `profile_students_id`, `KardexPayment`, `pending_amount`, `total_amount`, `discount_charge`, `period`, etc. La API propuesta es una proyección normalizada propia, **no** una réplica 1:1 verificada del backend universitario.
 
-## Conector futuro
+## Conector SIPAA
 
-Un gateway local implementará adaptador a la API real, token refresh, mapping a contrato normalizado, tiempos de espera y auditoría sin datos sensibles. La aplicación visual no debe necesitar conocer credenciales administrativas de la universidad.
+`api/sipaa.py` implementa LoginApi y KardexStudent según las imágenes del manual recibido el 10/11/2026. Mantiene tokens individuales en backend, valida y normaliza respuestas y vuelve a consultar saldos en la cotización. Si vence el token, se requiere iniciar sesión; no se conserva la contraseña para renovarlo. El registro de pagos, la pasarela y facturación siguen pendientes.
 
 ## Webpay PLUS
 

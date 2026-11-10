@@ -1,4 +1,8 @@
-# DOCKBUY — Kiosco Justo Sierra (DEMO)
+# DOCKBUY — Kiosco Justo Sierra
+
+**Nuevo: acceso y adeudos SIPAA.** El modo predeterminado usa matrícula y contraseña del formulario, `system_code: "AP"`, el token `data.token` de LoginApi y la consulta KardexStudent. No hay cobro real habilitado. Consulta [cómo iniciar desde VS Code, contrato y límites](docs/SIPAA.md).
+
+Las funcionalidades demo descritas a continuación requieren `KIOSCO_DATA_SOURCE=demo`. En SIPAA se presentan únicamente los servicios conectados y se bloquea la simulación sobre adeudos reales.
 
 Monorepositorio para Debian 13: **Tauri v2 + Vue 3 + Vite** y **API demo Python 3.10+**. ReportLab genera los adjuntos PDF y python-dotenv carga la configuración local del correo.
 
@@ -25,6 +29,7 @@ En GitHub Desktop selecciona **KioskoJsEMR**, pulsa **Fetch origin** y después 
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r api/requirements.txt
+$env:KIOSCO_DATA_SOURCE="sipaa"
 .\.venv\Scripts\python.exe api/server.py
 ```
 
@@ -35,7 +40,7 @@ npm run setup
 npm run dev
 ```
 
-Abrir http://127.0.0.1:1420. Matrícula `202210` o `202211`, PIN `1234`. `npm run dev` ya funciona desde la raíz; la API sigue en la primera terminal. Al actualizar el backend, reiniciar Python. La impresión ESC/POS requiere el kiosco Debian; en Windows puedes probar el flujo y el correo configurado.
+Abrir http://127.0.0.1:1420 e ingresar tu matrícula y contraseña institucionales. `npm run dev` funciona desde la raíz; la API sigue en la primera terminal. Al actualizar el backend, reiniciar Python. Para la demostración, inicia la API con `$env:KIOSCO_DATA_SOURCE="demo"`: únicamente ese modo acepta matrícula `202210` o `202211`, PIN `1234`, impresión y documentos ficticios.
 
 El envío permanece deshabilitado hasta configurar SMTP. Copia `api/.env.example` a `api/.env`, completa los datos del proveedor cuando exista y reinicia la API. Nunca subas ese archivo ni uses variables `VITE_` para credenciales. Consulta [configuración y estados de correo](docs/CORREO-KIOSCO.md).
 
@@ -87,9 +92,9 @@ npm run tauri:build
 
 La compilación empaqueta el **frontend**. El servicio API Python debe ejecutarse por separado antes de abrir el programa. En producción puede convertirse en un servicio systemd ligado a localhost o reemplazarse con el gateway real.
 
-## 4. Integración real pendiente
+## 4. Integración institucional
 
-No se recibió contrato de API de alumnos ni evidencia sobre su autenticación. El Bearer token es **una suposición simulada**; no asegura que el endpoint real lo acepte. Si usa OAuth2/Keycloak, API key, Basic, mTLS, cookies u otra modalidad, adaptar `app/src/api.js` o —preferentemente— un gateway backend que maneje credenciales con seguridad.
+Se implementaron LoginApi y KardexStudent de SIPAA con el contrato e imágenes del manual recibido el 10/11/2026. La autenticación institucional ocurre en Python y el navegador recibe una sesión local separada. Ver [SIPAA.md](docs/SIPAA.md). Falta validar el acceso con una cuenta autorizada en el entorno de la institución y recibir el contrato de registro de pagos.
 
 No exponer secretos, tokens permanentes ni claves MIT en variables `VITE_`: terminan en el bundle del frontend. Validar TLS, certificado, rutas, esquema JSON, paginación, identificadores, roles y vigencia de las sesiones en las instalaciones.
 

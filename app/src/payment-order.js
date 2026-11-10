@@ -1,5 +1,5 @@
 export function orderedCharges(charges) {
-  return [...charges].sort((a, b) => a.fechaVencimiento.localeCompare(b.fechaVencimiento) || a.id - b.id)
+  return [...charges].sort((a, b) => a.fechaVencimiento.localeCompare(b.fechaVencimiento) || (Number.isInteger(a.orden)&&Number.isInteger(b.orden)?a.orden-b.orden:a.id-b.id))
 }
 export function addNext(charges, selected, id) {
   const ordered = orderedCharges(charges)

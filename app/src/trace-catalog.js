@@ -10,7 +10,7 @@ export const actions = {
   'accessibility.open':'Abrir/cerrar accesibilidad', 'accessibility.text':'Cambiar tamaño de texto',
   'accessibility.contrast':'Cambiar contraste', 'accessibility.time':'Cambiar tiempo de sesión',
   'parking.issue':'Generar boleto', 'parking.scan':'Consultar otro boleto', 'parking.lookup':'Consultar importe', 'parking.reprint':'Reimprimir boleto',
-  'payment.add':'Agregar concepto', 'payment.remove':'Devolver concepto', 'payment.review':'Continuar al resumen',
+  'payment.refresh':'Actualizar adeudos', 'payment.add':'Agregar concepto', 'payment.remove':'Devolver concepto', 'payment.review':'Continuar al resumen',
   'payment.retry':'Reintentar pago', 'payment.clear':'Cancelar selección', 'payment.edit':'Modificar selección',
   'payment.confirm':'Confirmar pago demo', 'payment.another':'Hacer otro pago',
   'billing.lookup':'Buscar comprobante', 'billing.generate':'Generar factura demo', 'billing.another':'Escanear otro comprobante',

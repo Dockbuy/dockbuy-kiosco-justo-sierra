@@ -10,12 +10,24 @@ import payments
 import server
 import mail_delivery
 import campus
+import sipaa
+server.DATA_SOURCE = 'demo'
+from sipaa_fixture import kardex, login_response
 
 
 class TestHandler(server.Handler):
     def do_POST(self):
         if self.path == '/__test/reset':
-            self.body()
+            options = self.body()
+            server.DATA_SOURCE = 'sipaa' if options.get('mode') == 'sipaa' else 'demo'
+            def transport(url, data, token=None):
+                if url.endswith('/direct'):
+                    return login_response('test-only-upstream-token')
+                result = kardex(data['tuition'])
+                if options.get('empty'):
+                    result['concepts'] = {}
+                return result
+            server.SIPAA = sipaa.Gateway(sipaa.Config(), transport)
             with payments.connection() as con:
                 con.execute('DELETE FROM invoices')
                 con.execute('DELETE FROM paid_concepts')

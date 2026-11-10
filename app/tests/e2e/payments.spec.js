@@ -150,8 +150,10 @@ test('late payment response cannot reopen a closed session',async({page})=>{
 
 test('HTML health response does not claim API is connected',async({page})=>{
   await page.route('**/api/health',route=>route.fulfill({status:200,contentType:'text/html',body:'<html>fallback</html>'}))
-  await login(page)
-  await expect(page.getByText('API DESCONECTADA')).toBeVisible()
+  await page.goto('/')
+  await page.getByRole('button',{name:'INGRESAR AL PORTAL'}).click()
+  await expect(page.getByText('Conectando con la API local…')).toBeVisible()
+  await expect(page.getByRole('button',{name:'ENTRAR',exact:true})).toBeDisabled()
 })
 
 test('1366x768 kiosk keeps continue accessible with sixteen selected concepts',async({page})=>{
