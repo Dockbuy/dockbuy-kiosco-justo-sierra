@@ -49,11 +49,10 @@ pub(crate) fn configure(view: &WebView) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
-    #[test]
-    fn native_zoom_is_disabled_without_disabling_clicks_or_scrolling() {
+    pub fn native_zoom_is_disabled_without_disabling_clicks_or_scrolling() {
         gtk::init().expect("La prueba necesita una pantalla GTK (usar xvfb-run en CI)");
         let view = WebView::new();
         let controllers = [

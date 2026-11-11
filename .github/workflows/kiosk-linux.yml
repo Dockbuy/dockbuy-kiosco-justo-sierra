@@ -33,4 +33,4 @@ jobs:
       - name: Build frontend assets
         run: npm run setup && npm run build
       - name: Compile native app and test real GTK gesture controllers
-        run: xvfb-run -a cargo test --locked --manifest-path app/src-tauri/Cargo.toml --lib linux_touch::tests -- --test-threads=1
+        run: xvfb-run -a cargo test --locked --manifest-path app/src-tauri/Cargo.toml --test linux-touch

@@ -5,6 +5,13 @@ edition = "2021"
 [lib]
 name = "dockbuy_justo_sierra_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
+
+[[test]]
+name = "linux-touch"
+path = "tests/linux_touch.rs"
+# GTK/WebKit deben inicializarse y cerrarse en main, no en un hilo de libtest.
+harness = false
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 [dependencies]
