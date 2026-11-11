@@ -1,6 +1,11 @@
-/* Permite scroll táctil y evita pinch/doble toque para escalar la página. */
+/* touch-action se resuelve hasta el primer contenedor desplazable. Incluir
+   descendientes protege también teclados, listas y modales con scroll propio.
+   La regla del kiosco prevalece sobre manipulation, que sí permite pinza. */
+html[data-kiosk-lock="true"],html[data-kiosk-lock="true"] body,
+html[data-kiosk-lock="true"] body * {
+  touch-action:pan-x pan-y !important;
+}
 html[data-kiosk-lock="true"],html[data-kiosk-lock="true"] body {
-  touch-action:pan-x pan-y;
   overscroll-behavior:none;
   -webkit-text-size-adjust:100%;
   text-size-adjust:100%;

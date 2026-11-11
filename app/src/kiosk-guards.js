@@ -43,9 +43,10 @@ export function installKioskGuards(target=window) {
   const cancel=event=>{event.preventDefault();event.stopImmediatePropagation()}
   listen('keydown',event=>{if(blocksKioskShortcut(event))cancel(event)})
   listen('wheel',event=>{if(event.ctrlKey || event.metaKey)cancel(event)})
-  // Un dedo sigue desplazando la página; dos dedos no cambian su escala.
-  for(const type of ['touchstart','touchmove'])listen(type,event=>{if(event.touches.length>1)cancel(event)})
-  for(const type of ['gesturestart','gesturechange','gestureend','contextmenu','dragstart','dragover','drop'])listen(type,cancel)
+  // No cancelar touch/pointer: WebKitGTK necesita la secuencia completa para
+  // sintetizar clics. CSS limita la escala y Linux desactiva su gesto nativo.
+  for(const type of ['gesturestart','gesturechange','gestureend'])listen(type,event=>event.preventDefault())
+  for(const type of ['contextmenu','dragstart','dragover','drop'])listen(type,cancel)
   return ()=>{
     listeners.forEach(remove=>remove())
     if(previousLock===null)root.removeAttribute('data-kiosk-lock');else root.setAttribute('data-kiosk-lock',previousLock)

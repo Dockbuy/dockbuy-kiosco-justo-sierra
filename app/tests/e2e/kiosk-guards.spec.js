@@ -27,22 +27,28 @@ test('kiosk cancels zoom, inspector, context menu and file drop; permits normal 
   await page.keyboard.press('Control++');await page.keyboard.press('Control+-')
   expect(await page.evaluate(()=>devicePixelRatio)).toBe(before)
   await page.getByRole('button',{name:'Directorio y avisos',exact:true}).click()
+  await expect(page.getByRole('heading',{name:'Caja',exact:true})).toBeVisible()
   await page.mouse.move(650,650);await page.mouse.wheel(0,700)
   await expect.poll(()=>page.evaluate(()=>scrollY)).toBeGreaterThan(0)
 })
 
-test('multitouch is cancelled, single touch and large-text accessibility continue working',async({page})=>{
+test('touch sequences reach the page while CSS blocks scaling and accessibility stays usable',async({page})=>{
   await desktop(page)
   const result=await page.evaluate(()=>{
-    const dispatch=count=>{
-      const event=new Event('touchmove',{bubbles:true,cancelable:true})
+    const dispatch=(type,count)=>{
+      let delivered=false
+      document.body.addEventListener(type,()=>{delivered=true},{once:true})
+      const event=new Event(type,{bubbles:true,cancelable:true})
       Object.defineProperty(event,'touches',{value:Array.from({length:count},()=>({}))})
       document.body.dispatchEvent(event)
-      return event.defaultPrevented
+      return {cancelled:event.defaultPrevented,delivered}
     }
-    return {single:dispatch(1),pinch:dispatch(2),action:getComputedStyle(document.documentElement).touchAction}
+    return {
+      sequences:['touchstart','touchmove','touchend','touchcancel'].flatMap(type=>[1,2,3].map(count=>dispatch(type,count))),
+      action:getComputedStyle(document.documentElement).touchAction,
+    }
   })
-  expect(result).toEqual({single:false,pinch:true,action:'pan-x pan-y'})
+  expect(result).toEqual({sequences:Array.from({length:12},()=>({cancelled:false,delivered:true})),action:'pan-x pan-y'})
   await page.getByRole('button',{name:'Aa · Accesibilidad',exact:true}).click()
   await page.getByRole('button',{name:'Texto grande',exact:true}).click()
   await expect(page.locator('.screen')).toHaveClass(/large-text/)

@@ -641,8 +641,10 @@ dependencies = [
 name = "dockbuy-justo-sierra"
 version = "0.1.0"
 dependencies = [
+ "gtk",
  "tauri",
  "tauri-build",
+ "webkit2gtk",
 ]
 
 [[package]]
