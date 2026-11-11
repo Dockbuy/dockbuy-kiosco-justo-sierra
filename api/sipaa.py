@@ -6,7 +6,7 @@ El ejemplo específico de pago único sigue pendiente de confirmar.
 from collections import deque
 from dataclasses import dataclass, field
 from contextlib import contextmanager
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 import json
 import http.client
@@ -30,11 +30,13 @@ class IntegrationError(Exception):
 class Config:
     base_url: str = 'https://sipaa-erp.justo-sierra.net/api'
     timezone: str = 'America/Mexico_City'
+    ignore_expires_at: bool = False
 
     @classmethod
     def from_env(cls):
         return cls(os.getenv('SIPAA_BASE_URL', cls.base_url).rstrip('/'),
-                   os.getenv('SIPAA_TIMEZONE', 'America/Mexico_City'))
+                   os.getenv('SIPAA_TIMEZONE', 'America/Mexico_City'),
+                   os.getenv('SIPAA_IGNORE_EXPIRES_AT', '0').strip() == '1')
 
     def validate(self):
         try:
@@ -275,15 +277,22 @@ class Gateway:
         if (not isinstance(value, str) or not re.fullmatch(r'[\x21-\x7e]{1,8192}', value)
                 or details.get('token_type') != 'Bearer'):
             raise IntegrationError('LoginApi no devolvió un token Bearer válido en data.token.', 502, 'sipaa_token_format')
-        try:
-            expires = datetime.fromisoformat(details['expires_at'].replace('Z', '+00:00'))
-            if expires.tzinfo is None:
-                expires = expires.replace(tzinfo=ZoneInfo(self.config.timezone))
-            lifetime = min(600, int((expires - datetime.now(timezone.utc)).total_seconds()))
-        except (KeyError, TypeError, ValueError, AttributeError):
-            raise IntegrationError('LoginApi no devolvió una fecha de vencimiento válida.') from None
-        if lifetime <= 0:
-            raise IntegrationError('SIPAA devolvió una sesión vencida. Vuelve a ingresar.', 401, 'sipaa_expired')
+        if self.config.ignore_expires_at:
+            # Excepción temporal, activada solo en la configuración del servidor.
+            # Este límite es LOCAL; no modifica el token ni la fecha de SIPAA.
+            # server.py aún exige que KardexStudent acepte el token antes de abrir sesión.
+            lifetime = 600
+            expires = datetime.now(timezone.utc) + timedelta(seconds=lifetime)
+        else:
+            try:
+                expires = datetime.fromisoformat(details['expires_at'].replace('Z', '+00:00'))
+                if expires.tzinfo is None:
+                    expires = expires.replace(tzinfo=ZoneInfo(self.config.timezone))
+                lifetime = min(600, int((expires - datetime.now(timezone.utc)).total_seconds()))
+            except (KeyError, TypeError, ValueError, AttributeError):
+                raise IntegrationError('LoginApi no devolvió una fecha de vencimiento válida.') from None
+            if lifetime <= 0:
+                raise IntegrationError('SIPAA devolvió una sesión vencida. Vuelve a ingresar.', 401, 'sipaa_expired')
         user = details.get('user')
         name = user.get('name') if isinstance(user, dict) else ''
         name = name.strip()[:160] if isinstance(name, str) else ''

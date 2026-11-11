@@ -1,5 +1,6 @@
 import http.client
 import json
+import os
 import pathlib
 import sys
 import threading
@@ -70,6 +71,38 @@ class NormalizationTests(unittest.TestCase):
 
 
 class GatewayTests(unittest.TestCase):
+    def test_expiry_exception_is_explicit_and_disabled_by_default(self):
+        self.assertFalse(sipaa.Config().ignore_expires_at)
+        with patch.dict(os.environ,{},clear=True):
+            self.assertFalse(sipaa.Config.from_env().ignore_expires_at)
+        for value,enabled in [('1',True),('0',False),('',False),('true',False)]:
+            with patch.dict(os.environ,{'SIPAA_IGNORE_EXPIRES_AT':value}):
+                self.assertEqual(sipaa.Config.from_env().ignore_expires_at,enabled)
+
+    def test_temporary_mode_ignores_only_expiry_and_keeps_bounded_local_session(self):
+        import time
+        for expiry in ('2026-10-12 13:14:08','invalid',None):
+            data=login_response();data['data']['expires_at']=expiry
+            access=gateway(Mock(return_value=data),ignore_expires_at=True).authenticate('000042','p')
+            self.assertEqual(access.expires_in,600)
+            self.assertGreater(access.expires_at-time.time(),590)
+            self.assertLessEqual(access.expires_at-time.time(),600)
+        for field,value in [('token',None),('token','bad\r\ntoken'),('token_type','Basic')]:
+            data=login_response();data['data'][field]=value
+            with self.subTest(field=field),self.assertRaises(sipaa.IntegrationError):
+                gateway(Mock(return_value=data),ignore_expires_at=True).authenticate('000042','p')
+        with self.assertRaises(sipaa.IntegrationError) as caught:
+            gateway(Mock(side_effect=sipaa.UpstreamStatus(401)),ignore_expires_at=True).authenticate('000042','wrong')
+        self.assertEqual(caught.exception.status,401)
+
+    def test_disabling_exception_restores_expiry_validation(self):
+        data=login_response();data['data']['expires_at']='2000-01-01 00:00:00'
+        g=gateway(Mock(return_value=data),ignore_expires_at=True)
+        self.assertEqual(g.authenticate('000042','p').expires_in,600)
+        g.config=sipaa.Config(ignore_expires_at=False)
+        with self.assertRaises(sipaa.IntegrationError) as caught:g.authenticate('000042','p')
+        self.assertEqual(caught.exception.code,'sipaa_expired')
+
     def test_login_uses_form_credentials_and_fixed_ap_without_retaining_password(self):
         g = gateway()
         access = g.authenticate('000042', ' CaseSensitive$Password! ')
@@ -219,6 +252,37 @@ class InstitutionalApiTests(unittest.TestCase):
         with patch.object(self.gateway, 'consult', side_effect=sipaa.IntegrationError('No encontrado',404)):
             self.assertEqual(self.req('/auth/login', {'matricula':'202210','password':'test-password'})[0], 404)
         self.assertEqual(server.TOKENS, {})
+
+    def test_temporary_exception_still_requires_protected_endpoint_acceptance(self):
+        self.gateway.config=sipaa.Config(ignore_expires_at=True)
+        data=login_response();data['data']['expires_at']='2000-01-01 00:00:00'
+        self.gateway.transport=Mock(side_effect=[data,kardex()])
+        status,result=self.req('/auth/login',{'matricula':'000042','password':'test-password'})
+        self.assertEqual(status,200)
+        self.assertGreater(result['expires_in'],590)
+        self.assertLessEqual(result['expires_in'],600)
+        self.assertEqual(self.gateway.transport.call_args.args[2],data['data']['token'])
+        token=result['access_token']
+        self.assertNotIn('test-password',json.dumps(server.TOKENS))
+        # Si SIPAA rechaza el token después, también se revoca esta sesión local.
+        self.gateway.transport=Mock(side_effect=sipaa.UpstreamStatus(401))
+        self.assertEqual(self.req('/charges',token=token)[0],401)
+        self.assertNotIn(token,server.TOKENS)
+        for status in (401,403,500):
+            self.gateway.transport=Mock(side_effect=[data,sipaa.UpstreamStatus(status)])
+            code,result=self.req('/auth/login',{'matricula':'000042','password':'test-password'})
+            self.assertEqual(code,401 if status in (401,403) else 503)
+            self.assertNotIn('access_token',result)
+            self.assertEqual(server.TOKENS,{})
+
+    def test_client_cannot_enable_expiry_exception(self):
+        data=login_response();data['data']['expires_at']='2000-01-01 00:00:00'
+        self.gateway.transport=Mock(return_value=data)
+        code,result=self.req('/auth/login',{'matricula':'000042','password':'p','ignore_expires_at':True})
+        self.assertEqual(code,401)
+        self.assertEqual(self.gateway.transport.call_count,1)
+        self.assertNotIn('access_token',result)
+        self.assertEqual(server.TOKENS,{})
 
     def test_changed_debt_refreshes_quote_and_rejects_removed_selection(self):
         token = self.req('/auth/login', {'matricula':'000042','password':'test-password'})[1]['access_token']

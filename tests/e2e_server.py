@@ -22,12 +22,17 @@ class TestHandler(server.Handler):
             server.DATA_SOURCE = 'sipaa' if options.get('mode') == 'sipaa' else 'demo'
             def transport(url, data, token=None):
                 if url.endswith('/direct'):
-                    return login_response('test-only-upstream-token')
+                    result = login_response('test-only-upstream-token')
+                    if options.get('oldExpiry'):
+                        result['data']['expires_at'] = '2026-10-12 13:14:08'
+                    return result
+                if options.get('rejectToken'):
+                    raise sipaa.UpstreamStatus(401)
                 result = kardex(data['tuition'])
                 if options.get('empty'):
                     result['concepts'] = {}
                 return result
-            server.SIPAA = sipaa.Gateway(sipaa.Config(), transport)
+            server.SIPAA = sipaa.Gateway(sipaa.Config(ignore_expires_at=options.get('ignoreExpiry') is True), transport)
             with payments.connection() as con:
                 con.execute('DELETE FROM invoices')
                 con.execute('DELETE FROM paid_concepts')

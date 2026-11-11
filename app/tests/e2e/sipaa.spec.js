@@ -7,7 +7,7 @@ test.afterEach(async({request})=>{
   await request.post('http://127.0.0.1:8878/__test/reset',{data:{}})
 })
 
-async function login(page){
+async function enterCredentials(page){
   await page.goto('/')
   await page.getByRole('button',{name:'INGRESAR AL PORTAL'}).click()
   await expect(page.getByRole('button',{name:'CONSULTAR ADEUDOS'})).toBeVisible()
@@ -24,6 +24,10 @@ async function login(page){
   await expect(page.getByPlaceholder('Ingresa tu contraseña')).toHaveValue('Test!42')
   await page.getByRole('button',{name:'LISTO ✓',exact:true}).click()
   await page.getByRole('button',{name:'CONSULTAR ADEUDOS',exact:true}).click()
+}
+
+async function login(page){
+  await enterCredentials(page)
   await expect(page.getByRole('heading',{name:'CONSULTA DE ADEUDOS',exact:true})).toBeVisible()
   await page.getByRole('button',{name:/Servicios y pagos/}).click()
 }
@@ -82,4 +86,33 @@ test('invalid integration configuration disables login',async({page})=>{
   await expect(page.getByText(/La configuración de SIPAA no es válida/)).toBeVisible()
   await expect(page.getByRole('button',{name:'CONSULTAR ADEUDOS',exact:true})).toBeDisabled()
   await expect(page.getByText('Contraseña / PIN demo')).toHaveCount(0)
+})
+
+test('temporary expiry option allows consultation when SIPAA accepts the token',async({page,request})=>{
+  await request.post('http://127.0.0.1:8878/__test/reset',{data:{mode:'sipaa',oldExpiry:true,ignoreExpiry:true}})
+  await login(page)
+  const add=page.getByRole('button',{name:'Agregar concepto sipaa:128:single:10',exact:true})
+  await expect(add).toBeEnabled();await add.click()
+  await page.getByRole('button',{name:'CONTINUAR',exact:true}).click()
+  await expect(page.getByRole('heading',{name:'REVISA TUS ADEUDOS'})).toBeVisible()
+})
+
+test('disabling the temporary option restores the expiry rejection',async({page,request})=>{
+  await request.post('http://127.0.0.1:8878/__test/reset',{data:{mode:'sipaa',oldExpiry:true,ignoreExpiry:false}})
+  await enterCredentials(page)
+  await expect(page.getByText('SIPAA devolvió una sesión vencida. Vuelve a ingresar.')).toBeVisible()
+  await expect(page.getByPlaceholder('Ingresa tu contraseña')).toHaveValue('')
+  await expect(page.getByRole('heading',{name:'CONSULTA DE ADEUDOS',exact:true})).toHaveCount(0)
+})
+
+test('temporary expiry option never overrides a protected endpoint rejection',async({page,request})=>{
+  await request.post('http://127.0.0.1:8878/__test/reset',{data:{mode:'sipaa',oldExpiry:true,ignoreExpiry:true,rejectToken:true}})
+  const pending=page.waitForResponse(r=>r.url().endsWith('/api/auth/login'))
+  await enterCredentials(page)
+  const response=await pending
+  expect(response.status()).toBe(401)
+  expect((await response.json()).access_token).toBeUndefined()
+  await expect(page.getByText('Tu sesión en SIPAA venció o no tiene acceso. Vuelve a ingresar.')).toBeVisible()
+  await expect(page.getByPlaceholder('Ingresa tu contraseña')).toHaveValue('')
+  await expect(page.getByRole('heading',{name:'CONSULTA DE ADEUDOS',exact:true})).toHaveCount(0)
 })

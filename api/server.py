@@ -325,4 +325,6 @@ class Handler(GuardedHTTPHandler, BaseHTTPRequestHandler):
 
 if __name__ == '__main__':
     print(f'API {DATA_SOURCE.upper()} http://{HOST}:{PORT}/api/health | sin cobro real')
+    if DATA_SOURCE == 'sipaa' and SIPAA.config.ignore_expires_at:
+        print('[TEMPORAL] SIPAA_IGNORE_EXPIRES_AT=1: revisión local de fecha omitida; login y KardexStudent siguen siendo obligatorios. Sesión local máxima: 10 minutos.')
     ThreadingHTTPServer((HOST, PORT), Handler).serve_forever()

@@ -72,6 +72,29 @@ La API local permanece ligada a `127.0.0.1:8787`, con sus controles previos de O
 
 ## Configuración y diagnóstico
 
+### Omitir temporalmente la fecha incorrecta de LoginApi
+
+Mientras el proveedor corrige `expires_at`, se puede omitir **solo su validación local**, sin comentar código. Está desactivado por defecto. En la terminal PowerShell de la API, detén el proceso con **Ctrl+C** y ejecuta:
+
+```powershell
+$env:KIOSCO_DATA_SOURCE="sipaa"
+$env:SIPAA_IGNORE_EXPIRES_AT="1"
+.\.venv\Scripts\python.exe api/server.py
+```
+
+El inicio muestra un aviso `[TEMPORAL]`. LoginApi debe autorizar la matrícula/contraseña y entregar un Bearer válido; KardexStudent debe aceptar ese token y devolver un kardex válido antes de abrir la sesión. Si responde 401/403, el acceso sigue rechazándose. La sesión local dura como máximo 10 minutos y mantiene el cierre por inactividad. No cambia el token, su vigencia en SIPAA ni habilita cobros.
+
+Cuando el proveedor lo corrija, detén la API y restaura la validación:
+
+```powershell
+$env:SIPAA_IGNORE_EXPIRES_AT="0"
+.\.venv\Scripts\python.exe api/server.py
+```
+
+En Debian, antepone `SIPAA_IGNORE_EXPIRES_AT=1` o `SIPAA_IGNORE_EXPIRES_AT=0` al comando `.venv/bin/python api/server.py`. También se puede guardar la variable en el `api/.env` privado del kiosco; las variables de la terminal tienen prioridad. La interfaz no puede activar esta excepción mediante el formulario. No hace falta reinstalar dependencias ni cambiar la interfaz.
+
+### Configuración habitual
+
 SIPAA es el modo predeterminado. Configuración opcional en `api/.env`, ignorado por Git:
 
 ```dotenv
